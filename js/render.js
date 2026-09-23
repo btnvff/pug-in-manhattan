@@ -11,6 +11,15 @@ function initializeView() {
     document.getElementById("game").dataset.view = "2d";
   }
 }
+function fallbackToCanvas(error) {
+  if (error) console.warn("3D failed; using Canvas 2D.", error);
+  pause();
+  const view = activeView;
+  activeView = null;
+  view?.dispose();
+  document.getElementById("game").dataset.view = "2d";
+  renderCanvasScene();
+}
 function render() {
   if (activeView) activeView.render();
   else renderCanvasScene();
