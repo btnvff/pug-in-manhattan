@@ -615,3 +615,13 @@ body {
     top: max(95px, calc(env(safe-area-inset-top) + 85px));
   }
 }
+
+/* WebGL scenery sits behind the existing input and feedback canvas. */
+#scene-3d {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+#scene {
+  position: relative;
+}
