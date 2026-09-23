@@ -43,8 +43,8 @@ function samplePugPose(signal, pose = {}) {
   pose.bodyRoll = (-(signal.lean ?? 0) * 0.7 + Math.sin(gait) * 0.012 * move) * edgeBlend;
   pose.stretch = 1 - Math.cos(gait * 2) * 0.012 * move - bad * 0.018 + good * 0.008;
   pose.headY = breath * 0.65 * idle + Math.sin(gait * 2 - 0.5) * 0.85 * move + savor * 0.7 - bad * 0.9;
-  pose.headYaw = turn * 0.265 + scan * 0.12;
-  pose.headPitch = -look * 0.14 + breath * .012 * idle + (chewing ? Math.sin(chewPhase * Math.PI * 4) * 0.035 * savor : 0) + bad * 0.085 + sad * 0.05;
+  pose.headYaw = pugPoseClamp(turn * 0.265 + scan * 0.12 + idle * .035, -.36, .36);
+  pose.headPitch = -look * 0.14 + (breath * .012 - .04) * idle + (chewing ? Math.sin(chewPhase * Math.PI * 4) * 0.035 * savor : 0) + bad * 0.085 + sad * 0.05;
   pose.headRoll = (-turn * 0.065 + scan * 0.067 + Math.sin(time * 1.1) * 0.014 * idle
     + Math.sin(gait - 0.45) * 0.025 * move + bad * Math.sin(reactionPhase * Math.PI * 3) * 0.045 + sad * 0.045) * edgeBlend;
   const blinkTime = time % 12.9;
@@ -99,19 +99,19 @@ function animatePugModel(hero, signal) {
     // Solve the lowest point of the rounded foot after body roll/squash and ankle flex.
     // The supporting paw stays on the floor, rather than following a floating body bob.
     const sinAnkle = Math.sin(paw.rotation.x), cosAnkle = Math.cos(paw.rotation.x);
-    const footRadius = Math.hypot(sinRoll * width * 10, cosRoll * pose.stretch * cosAnkle * 6,
+    const footRadius = Math.hypot(sinRoll * width * 10, cosRoll * pose.stretch * cosAnkle * 8,
       cosRoll * pose.stretch * sinAnkle * 12);
     paw.position.y = (lift - pose.bodyY - sinRoll * width * side * 16.5 + footRadius)
-      / (cosRoll * pose.stretch) + 21 * cosAnkle + 5 * sinAnkle;
+      / (cosRoll * pose.stretch) + 19 * cosAnkle + 5 * sinAnkle;
     const hind = parts.hindPaws[i];
     const hindLift = Math.max(0, -step) ** 2 * 1.6;
     const hindRadius = Math.hypot(sinRoll * width * 10, cosRoll * pose.stretch * 5.3);
     hind.position.y = (hindLift - pose.bodyY - sinRoll * width * side * 27 + hindRadius) / (cosRoll * pose.stretch);
     hind.position.z = 8 - step * 0.6;
     parts.contacts[i].position.x = cosRoll * width * side * 16.5
-      - sinRoll * pose.stretch * (paw.position.y - 21 * cosAnkle - 5 * sinAnkle);
+      - sinRoll * pose.stretch * (paw.position.y - 19 * cosAnkle - 5 * sinAnkle);
     parts.contacts[i].scale.x = 23 - lift;
-    parts.contacts[i].material.opacity = 0.24 * (1 - pugPoseSmooth(lift / 4.2));
+    parts.contacts[i].material.opacity = 0.35 * (1 - pugPoseSmooth(lift / 4.2));
     const eye = parts.eyes[i];
     // Close the complete eye opening, including its dark rim, not only the iris.
     eye.scale.y = pose.eyeOpen * eye.userData.openHeight;
@@ -129,11 +129,11 @@ function animatePugModel(hero, signal) {
   parts.jaw.position.set(pose.jawSide, -13.5 - pose.chew, 28.5);
   parts.mouth.scale.y = 2.4 * (0.4 + pose.chew * 0.28 + pose.tongue * .9);
   parts.tongue.visible = pose.tongue > 0.04;
-  parts.tongue.scale.y = 4.5 * pose.tongue;
+  parts.tongue.scale.y = 5.2 * pose.tongue;
   parts.tongue.position.y = -14.4 - pose.tongue * 2.3 - pose.chew * 0.5;
   parts.tongue.rotation.z = -.12 + pose.jawSide * .12;
-  parts.shadow.scale.x = 89 + pose.bodyY * 0.65;
-  parts.shadow.material.opacity = 0.32 - pose.bodyY * 0.012;
+  parts.shadow.scale.x = 106 + pose.bodyY * 0.65;
+  parts.shadow.material.opacity = 0.44 - pose.bodyY * 0.012;
   for (let i = 0; i < 2; i++) {
     const puff = parts.breath[i];
     const age = Math.max(0, Math.min(1, (pose.exhale - i * 0.13) / 0.9));

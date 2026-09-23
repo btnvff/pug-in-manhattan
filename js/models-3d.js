@@ -63,11 +63,11 @@ function createModelFactory() {
   }
   function foodModel(type, variant = 0) {
     const root = group();
-    const warm = ["#d97443", "#c3613a", "#df8750", "#ca7042", "#ba623e", "#d88750", "#bd5939", "#d07945"];
+    const warm = ["#d4613c", "#c85135", "#dc7046", "#cc5c3b", "#bb5337", "#dd794b", "#bf4e34", "#d26942"];
     if (type === 0) {
       const casingRoot = group(root); casingRoot.rotation.z = .55;
       part(casingRoot, "sausage", warm[variant % 8], 0, 0, 0, 1, 1, 1);
-      material(warm[variant % 8]).roughness = .48;
+      material(warm[variant % 8]).roughness = .36;
       for (const side of [-1, 1]) {
         part(casingRoot, "ball", "#b65b38", 0, side * 23.5, 0, 2.2, 2, 2.2);
         const end = part(casingRoot, "cone", warm[variant % 8], 0, side * 27, 0, 3.3, 5, 2.4);

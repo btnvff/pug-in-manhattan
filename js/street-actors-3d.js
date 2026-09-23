@@ -1,7 +1,7 @@
 // Background-only rigs. No gameplay RNG or independent animation loop.
 function createStreetActors(model, root, width, height, base, perspective) {
   const T = window.THREE, people = [], cars = [], wheels = [], cycleLegs = [];
-  const owned = [];
+  const owned = [], actorMaterials = [], projected = {};
   const up = new T.Vector3(0, 1, 0), delta = new T.Vector3();
   function segment(parent, color, radius) {
     const mesh = model.part(parent, 'tube', color, 0, 0, 0, radius, 1, radius);
@@ -42,24 +42,62 @@ function createStreetActors(model, root, width, height, base, perspective) {
   const body=profile([[-51,9],[-53,18],[-48,22],[-28,23],[-20,25],[24,25],[33,22],[52,20],[54,12],[48,9]],26,1.2);
   const roof=profile([[-29,22],[-18,35],[-10,37],[12,37],[19,34],[30,22]],21,.8);
   const glass=profile([[-24,24],[-16,33],[11,34],[17,32],[25,24]],.7,.2);
+  // Sedan sources are built once, then every vertex follows the street projection.
+  // Rendering the real vehicle depth avoids side-on cars sliding across an avenue.
+  const wheelGeometry=new T.SphereGeometry(1,10,6);owned.push(wheelGeometry);
   for(let i=0;i<3;i++) {
-    const car=model.group(root,0,height/2-base-37,-127); car.scale.setScalar(.8);
-    const color=['#d7ab50','#628490','#7e898e'][i];
-    for(const geometry of [body,roof]) car.add(new T.Mesh(geometry,model.material(color)));
-    const windowMesh=new T.Mesh(glass,model.material('#213c50'));windowMesh.position.z=12;car.add(windowMesh);
-    model.part(car,'box','#a5c3ce',-2,29,13,2,11,1);
+    const source=model.group(),color=['#efb63f','#597c94','#a57767'][i];
+    for(const geometry of [body,roof])source.add(new T.Mesh(geometry,model.material(color)));
     for(const side of [-1,1]) {
-      model.part(car,'ball','#26313b',side*33,8,14,9.5,9.5,3);
-      model.part(car,'ball','#151f2b',side*33,8,16,8,8,3);
-      model.part(car,'ball','#a4b6bf',side*33,8,19,4.5,4.5,1);
-      model.part(car,'box','#dce5e4',side*49,12,14,8,2.2,2);
-      model.part(car,'box',side>0?'#fff2ba':'#b84a40',side*49,19,14,6,3,2);
-      model.part(car,'box','#c7d6d9',side*12,22,14,5,1.2,1);
-      model.part(car,'box','#315363',side*21,17,14,1,9,1);
+      const windowMesh=new T.Mesh(glass,model.material('#294e68'));windowMesh.position.z=side*12;source.add(windowMesh);
+      model.part(source,'box','#86adbb',-2,29,side*13,2,11,1);
+      for(const axle of [-1,1]) {
+        const tyre=new T.Mesh(wheelGeometry,model.material('#28353b'));tyre.position.set(axle*33,8,side*14);tyre.scale.set(9,9,3.3);source.add(tyre);
+        const hub=new T.Mesh(wheelGeometry,model.material('#b0bbc0'));hub.position.set(axle*33,8,side*17);hub.scale.set(4.1,4.1,1);source.add(hub);
+        model.part(source,'box','#d6d8c7',axle*12,22,side*14,5,1.4,1.1);
+        model.part(source,'box','#68838c',axle*21,17,side*14,1,9,1);
+      }
+      model.part(source,'box','#f9e4a3',53,18,side*8,2,4,5);
+      model.part(source,'box','#c56850',-51,18,side*8,2,4,4);
     }
-    model.part(car,'box','#aebfc4',0,13,14,46,1.3,1);
-    if(!i) model.part(car,'box','#ffe48a',0,41,0,15,5,10);
-    cars.push(car);
+    model.part(source,'box','#d7dbcf',53,11,0,3,3,22);
+    model.part(source,'box','#55727c',54,16,0,2,4,10);
+    model.part(source,'box','#e2dac2',-53,11,0,3,3,22);
+    if(!i)model.part(source,'box','#ffdd78',0,41,0,14,5,9);
+    const windshield=new T.BufferGeometry();
+    windshield.setAttribute('position',new T.Float32BufferAttribute([29.8,24,-9,29.8,24,9,20,34,8,20,34,-8],3));
+    windshield.setIndex([0,1,2,0,2,3]);windshield.computeVertexNormals();owned.push(windshield);
+    source.add(new T.Mesh(windshield,model.material('#537e95')));
+    const rearGlass=windshield.clone();owned.push(rearGlass);
+    const rearPosition=rearGlass.attributes.position;
+    for(let j=0;j<rearPosition.count;j++)rearPosition.setX(j,-rearPosition.getX(j)+.6);
+    rearGlass.computeVertexNormals();source.add(new T.Mesh(rearGlass,model.material('#416d87')));
+    source.updateMatrixWorld(true);
+    const positions=[],normals=[],colors=[],direction=i===1?-1:1;
+    const vector=new T.Vector3(),normal=new T.Vector3(),normalMatrix=new T.Matrix3();
+    source.traverse(part=>{
+      if(!part.geometry)return;
+      const geo=part.geometry,p=geo.attributes.position,n=geo.attributes.normal,index=geo.index;
+      normalMatrix.getNormalMatrix(part.matrixWorld);
+      for(let j=0;j<(index?index.count:p.count);j++) {
+        const k=index?index.getX(j):j;
+        vector.fromBufferAttribute(p,k).applyMatrix4(part.matrixWorld);
+        positions.push(vector.z*3*direction,vector.y*2+2,-vector.x*2*direction);
+        normal.fromBufferAttribute(n,k).applyMatrix3(normalMatrix);
+        normal.set(normal.z/3*direction,normal.y/2,-normal.x/2*direction).normalize();
+        normals.push(normal.x,normal.y,-normal.z);
+        const light=.72+.38*Math.max(0,-normal.x*.36+normal.y*.65-normal.z*.67);
+        const tint=part.material.color;
+        colors.push(tint.r*light,tint.g*light,tint.b*light);
+      }
+    });
+    const geometry=new T.BufferGeometry();owned.push(geometry);
+    geometry.setAttribute('position',new T.Float32BufferAttribute(positions.slice(),3).setUsage(T.DynamicDrawUsage));
+    geometry.setAttribute('normal',new T.Float32BufferAttribute(normals,3));
+    geometry.setAttribute('color',new T.Float32BufferAttribute(colors,3));
+    const mat=new T.MeshBasicMaterial({vertexColors:true,toneMapped:false,side:T.DoubleSide});actorMaterials.push(mat);
+    const car=new T.Mesh(geometry,mat);car.frustumCulled=false;car.name='avenue-car-'+i;root.add(car);
+    cars.push({car,source:positions});
   }
   const cycle=model.group(root,0,height/2-base-52,-122);cycle.scale.setScalar(.66);
   for(const side of [-1,1]) {
@@ -79,24 +117,28 @@ function createStreetActors(model, root, width, height, base, perspective) {
   }
   function animate(time) {
     people.forEach(({person,legs,arms},i)=>{
-      const side=i%2?1:-1, depth=width*(.82+i*.47+Math.sin(time*.045+i)*.20);
-      const p0=perspective.project(side*width*.54,0,depth);
+      const side=i%2?1:-1, depth=width*(1.50+i*.87+Math.sin(time*.045+i)*.18);
+      const p0=perspective.project(side*(perspective.roadHalf+width*.14),0,depth);
       person.position.set(p0.x-width/2,height/2-p0.y,p0.z+4);
       person.scale.setScalar(p0.scale*1.32);
       const p=time*(3.4+i*.25)+i*2;
       legs.forEach((pose,j)=>{const phase=p+j*Math.PI;pose(0,27,Math.cos(phase)*6,2+Math.max(0,Math.sin(phase))*3);});
       arms.forEach((pose,j)=>{const swing=Math.cos(p+j*Math.PI)*5;pose([0,46,j?6:-6],[swing,28,j?6:-6]);});
     });
-    cars.forEach((car,i)=>{
-      const progress=(time*(i%2?-.021:.025)+i*.37+100)%1;
-      const p=perspective.project((progress-.5)*width*2.1,0,width*(.97+i*.82));
-      car.position.set(p.x-width/2,height/2-p.y,p.z+4);
-      car.scale.setScalar(p.scale*1.4);
+    cars.forEach(({car,source},i)=>{
+      const depth=width*(i===2?3.12:i===0?2.05+(1-(time*.010+.76)%1)*3.3:2.6+(time*.008+.3)%1*4.5);
+      const lane=perspective.roadHalf*(i===0?-.37:i===1?.36:.65);
+      const position=car.geometry.attributes.position;
+      for(let j=0;j<position.count;j++) {
+        const p=perspective.project(lane+source[j*3],source[j*3+1],depth+source[j*3+2],projected);
+        position.setXYZ(j,p.x-width/2,height/2-p.y,p.z+.2);
+      }
+      position.needsUpdate=true;
     });
-    const cycleDepth=width*(.89+(time*.012)%1.9), cp=perspective.project(-width*.40,12,cycleDepth);
-    cycle.position.set(cp.x-width/2,height/2-cp.y,cp.z+5);cycle.scale.setScalar(cp.scale*1.2);
+    const cycleDepth=width*(1.65+(time*.009)%3.2),cp=perspective.project(-perspective.roadHalf*.82,12,cycleDepth);
+    cycle.position.set(cp.x-width/2,height/2-cp.y,cp.z+3);cycle.scale.setScalar(cp.scale*1.3);cycle.rotation.y=1.05;
     wheels.forEach(w=>w.rotation.z=-time*4);
     cycleLegs.forEach((pose,i)=>{const p=time*6+i*Math.PI;pose(-5,27,2+Math.cos(p)*4.2,4+Math.sin(p)*4.2);});
   }
-  return {animate,dispose(){owned.forEach(g=>g.dispose());},owned};
+  return {animate,dispose(){owned.forEach(g=>g.dispose());actorMaterials.forEach(m=>m.dispose());},owned};
 }
