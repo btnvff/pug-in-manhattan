@@ -606,6 +606,30 @@ body {
 .menu-card {
   padding: 16px 18px;
 }
+/* Start above the street: the hero keeps its actual starting position below. */
+.sky-heading {
+  background: linear-gradient(#8ed2eecc, #b5eaff00);
+  border-radius: 0;
+}
+.menu-card {
+  position: absolute;
+  top: 35%;
+  width: calc(100% - 40px);
+  max-width: 350px;
+  margin: 0;
+  padding: 12px 16px;
+}
+.menu-card .instruction { margin: 10px auto 6px; }
+@media (max-height: 660px) {
+  .sky-heading { height: 180px; padding-top: max(34px, env(safe-area-inset-top)); }
+  .menu-card { top: 185px; padding: 10px 14px; }
+  .menu-card .instruction { font-size: 12px; line-height: 1.3; margin: 8px auto 4px; }
+  .menu-card .record { margin: 5px 0 0; }
+}
+@media (orientation: landscape) and (max-height: 550px) {
+  .menu-card { top: 90px; right: max(20px, env(safe-area-inset-right)); width: 36%; }
+  .sky-heading { height: 180px; }
+}
 @media (max-height: 500px) {
   #condition {
     top: max(65px, calc(env(safe-area-inset-top) + 55px));

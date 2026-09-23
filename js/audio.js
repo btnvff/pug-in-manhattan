@@ -3,12 +3,17 @@ const audioSystem = {
   context: null,
   master: null,
   music: null,
+  ambience: null,
+  street: null,
   fx: null,
   noise: null,
   voices: new Set(),
+  bed: new Set(),
   mode: "menu",
   next: 0,
   beat: 0,
+  nextStreet: 0,
+  streetBeat: 0,
   unlocked: false,
   lastEffect: Object.create(null),
 };
@@ -22,6 +27,8 @@ function unlockAudio() {
       audioSystem.context = context;
       const master = context.createGain(),
         music = context.createGain(),
+        ambience = context.createGain(),
+        street = context.createGain(),
         fx = context.createGain();
       const compressor = context.createDynamicsCompressor();
       compressor.threshold.value = -16;
@@ -30,13 +37,17 @@ function unlockAudio() {
       compressor.attack.value = 0.006;
       compressor.release.value = 0.16;
       music.gain.value = 0.55;
+      ambience.gain.value = 0.72;
+      street.gain.value = 0.8;
       fx.gain.value = 1.2;
       master.gain.value = 0.85;
       music.connect(compressor);
+      ambience.connect(compressor);
+      street.connect(compressor);
       fx.connect(compressor);
       compressor.connect(master);
       master.connect(context.destination);
-      Object.assign(audioSystem, { master, music, fx });
+      Object.assign(audioSystem, { master, music, ambience, street, fx });
       const noise = context.createBuffer(
           1,
           Math.floor(context.sampleRate * 2),
@@ -51,10 +62,14 @@ function unlockAudio() {
       }
       audioSystem.noise = noise;
     }
+    const recovering = !audioSystem.unlocked || audioSystem.context.state !== "running";
     audioSystem.unlocked = true;
     const result = audioSystem.context.resume();
     if (result?.catch) result.catch(() => {});
-    audioSystem.next = audioSystem.context.currentTime + 0.06;
+    if (recovering) {
+      audioSystem.next = audioSystem.context.currentTime + 0.06;
+      audioSystem.nextStreet = audioSystem.context.currentTime + 3.5;
+    }
     syncAudioPreference();
   } catch {
     /* Unsupported audio must never stop the game. */
@@ -84,26 +99,48 @@ function stopAudioVoices() {
     } catch {}
   }
   audioSystem.voices.clear();
+  audioSystem.bed.clear();
 }
 function audioScene(mode) {
   if (mode === audioSystem.mode) return;
   stopAudioVoices();
   audioSystem.mode = mode;
   audioSystem.beat = 0;
-  if (audioSystem.context)
+  audioSystem.streetBeat = 0;
+  if (audioSystem.context) {
     audioSystem.next = audioSystem.context.currentTime + 0.07;
+    audioSystem.nextStreet = audioSystem.context.currentTime + 3.5;
+  }
 }
 function trackVoice(source, gain, nodes) {
   const voice = { source, gain };
   audioSystem.voices.add(voice);
   source.onended = () => {
     audioSystem.voices.delete(voice);
+    audioSystem.bed.delete(voice);
     for (const node of nodes) {
       try {
         node.disconnect();
       } catch {}
     }
   };
+  return voice;
+}
+function startCityBed() {
+  const a = audioSystem, c = a.context;
+  if (!c || a.bed.size || a.voices.size > 44) return;
+  // Two quiet continuous layers, with different loop rates to hide the noise seam.
+  // The low traffic bed and airy midrange remain audible on small phone speakers.
+  for (const [frequency, volume, rate, type] of [[440, 0.075, 0.78, "lowpass"], [1050, 0.014, 1.13, "bandpass"]]) {
+    const source = c.createBufferSource(), filter = c.createBiquadFilter(), gain = c.createGain();
+    source.buffer = a.noise; source.loop = true; source.playbackRate.value = rate;
+    filter.type = type; filter.frequency.value = frequency; filter.Q.value = 0.55;
+    gain.gain.setValueAtTime(0, c.currentTime);
+    gain.gain.linearRampToValueAtTime(volume, c.currentTime + 0.65);
+    source.connect(filter); filter.connect(gain); gain.connect(a.ambience);
+    a.bed.add(trackVoice(source, gain, [source, filter, gain]));
+    source.start();
+  }
 }
 function tone(
   frequency,
@@ -209,7 +246,7 @@ function sound(kind, pan = 0) {
           f,
           t + i * 0.1,
           0.18,
-          kind === "critical" ? 0.045 : 0.027,
+          kind === "critical" ? 0.045 : kind === "combo" ? 0.04 : 0.027,
           "sine",
           "fx",
           pan,
@@ -312,19 +349,12 @@ function audioFrame() {
     return;
   try {
     const now = c.currentTime;
+    startCityBed();
     if (a.next < now - 0.2) a.next = now + 0.025; // Never replay a backlog after throttling.
     let budget = 0;
     while (a.next < now + 0.12 && budget++ < 2) {
       const t = a.next,
         event = a.beat;
-      ambientWash(
-        t,
-        5.5,
-        0.085,
-        240 + (event % 3) * 90,
-        event % 2 ? 0.35 : -0.35,
-      );
-      if (event % 3 === 1) ambientWash(t + 0.5, 4.5, 0.055, 650, -0.3);
       // Sparse soft major-sixth phrases sit below the city bed; no percussion.
       const phrases = [
         [392, 493.88, 587.33],
@@ -337,13 +367,27 @@ function audioFrame() {
         tone(f, t + i * 0.72, 0.9, 0.012, "sine", "music", -0.15),
       );
       tone(phrase[0] / 2, t, 2.1, 0.006, "sine", "music", 0.1);
-      // A rare, quiet distant bird.
-      if (event % 7 === 3) {
-        tone(1650, t + 1, 0.14, 0.005, "sine", "music", 0.5, 2050);
-        tone(1900, t + 1.22, 0.12, 0.004, "sine", "music", 0.45, 1500);
-      }
-      a.next += 3.2 + (event % 3) * 0.45;
+      a.next += 7.2 + (event % 3) * 0.45;
       a.beat++;
+    }
+    if (a.nextStreet < now - 0.2) a.nextStreet = now + 1.5;
+    if (a.nextStreet < now + 0.12) {
+      const t = a.nextStreet, event = a.streetBeat++;
+      const pan = event % 2 ? 0.5 : -0.5;
+      if (event % 6 === 2) {
+        // A distant two-note taxi horn, well below the collection sounds.
+        tone(349, t, 0.32, 0.018, "triangle", "street", pan, 340);
+        tone(440, t, 0.29, 0.012, "triangle", "street", pan, 428);
+      } else if (event % 6 === 4) {
+        tone(1650, t, 0.14, 0.009, "sine", "street", pan, 2050);
+        tone(1900, t + 0.22, 0.12, 0.007, "sine", "street", pan, 1500);
+      } else if (event % 6 === 5) {
+        bell(1568, t, 0.22, 0.009, "street", pan);
+      } else {
+        ambientWash(t, 4.5, 0.08, 700 + event % 3 * 130, pan);
+        tone(95, t, 2.4, 0.006, "sine", "street", pan, 65);
+      }
+      a.nextStreet += [8.5, 11.2, 9.4, 12.1, 10.3, 8.8][event % 6];
     }
   } catch {}
 }
@@ -372,9 +416,9 @@ function ambientWash(when, duration, volume, frequency, pan) {
     stereo.pan.setValueAtTime(-pan, when);
     stereo.pan.linearRampToValueAtTime(pan, when + duration);
     gain.connect(stereo);
-    stereo.connect(a.music);
+    stereo.connect(a.street);
     nodes.push(stereo);
-  } else gain.connect(a.music);
+  } else gain.connect(a.street);
   trackVoice(source, gain, nodes);
   source.start(when);
   source.stop(when + duration + 0.02);

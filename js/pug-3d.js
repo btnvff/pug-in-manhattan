@@ -113,7 +113,7 @@ function createPugModel() {
     }));
   }
   const body = group(root, "body");
-  const torso = mesh(body, "continuous-coat", coatGeometry("body"), material("#ffffff", 0.94, true), 0, 34, -1, 33, 31, 25);
+  const torso = mesh(body, "continuous-coat", coatGeometry("body"), material("#ffffff", 0.94, true), 0, 40, -1, 33, 35, 26);
   const hindPaws = [], paws = [], ears = [], eyes = [], lids = [], brows = [], smiles = [];
   for (const side of [-1, 1]) {
     oval(body, "haunch", fur, side * 23, 20, -4, 13, 19, 15);
@@ -130,9 +130,11 @@ function createPugModel() {
   const tail = group(body, "curled-tail", 24, 32, -9);
   stroke(tail, "tapered-curl", [[0, 0, 0], [10, 3, 0], [15, 12, 1], [10, 20, 3], [0, 19, 5], [-3, 12, 7], [3, 9, 8], [7, 13, 8]], 4.4, fur, true);
   oval(tail, "rounded-tail-tip", fur, 7, 13, 8, 1.24, 1.24, 1.24);
-  oval(body, "soft-neck", fur, 0, 64, -4, 18, 11, 12);
-  oval(body, "bandana-collar", scarfMaterial, 0, 63, 1, 20, 3.6, 15);
-  const cloth = group(body, "bandana-tip", 0, 63, 24);
+  // A broad shoulder ruff joins the existing head to the lifted compact torso.
+  // Keep the head pivot/catch alignment; no narrow visible neck column.
+  oval(body, "shoulder-ruff", fur, 0, 65, -2, 27, 10, 19);
+  oval(body, "bandana-collar", scarfMaterial, 0, 62, 1, 25, 2.8, 18);
+  const cloth = group(body, "bandana-tip", 0, 62, 26);
   const bib = new T.Shape();
   bib.moveTo(-12, 0); bib.quadraticCurveTo(0, 3, 12, 0);
   bib.quadraticCurveTo(7, -6, 1, -13); bib.quadraticCurveTo(0, -14, -1, -13);
@@ -140,7 +142,7 @@ function createPugModel() {
   mesh(cloth, "soft-bandana", softShape(bib, 1, 1), scarfMaterial, 0, 0, 0);
   oval(body, "bandana-knot", scarfMaterial, 20, 61, 9, 4.3, 3.6, 4);
 
-  const head = group(body, "head", 0, 93, 6);
+  const head = group(body, "head", 0, 92, 6);
   mesh(head, "rounded-head", coatGeometry("head"), material("#ffffff", 0.93, true), 0, 3, 0, 41, 31, 27);
   // The ear is a short folded flap, not an elongated sphere or a pointed cone.
   const earShape = new T.Shape();

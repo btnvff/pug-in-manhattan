@@ -204,7 +204,9 @@ function drawCatHelpers() {
   ctx.save();
   ctx.globalAlpha = Math.min(1, catAge / 0.22, powerTimers.helpers / 0.3);
   for (const side of [-1, 1]) {
+    const pose = helperPresentation(side);
     const c = {
+      presentation: pose,
       x: helperX(side) - side * 27,
       t: 1.85,
       side,
@@ -219,8 +221,9 @@ function drawCatGifts() {
   for (const g of catGifts) {
     const u = clamp(g.t / BALANCE.helpers.flight, 0, 1),
       mouthY = ground() - 64 * heroScale();
-    const gx = g.sx + (x + headTurn * 5 - g.sx) * u,
-      gy = g.sy + (mouthY - g.sy) * u - Math.sin(u * Math.PI) * 45;
+    const origin = helperGiftOrigin(g);
+    const gx = origin.sx + (x + headTurn * 5 - origin.sx) * u,
+      gy = origin.sy + (mouthY - origin.sy) * u - Math.sin(u * Math.PI) * 45;
     ctx.save();
     ctx.translate(gx, gy);
     ctx.scale(0.65, 0.65);

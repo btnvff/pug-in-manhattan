@@ -287,13 +287,7 @@ function specialFor(type) {
 function missVegetable(it) {
   if (it.used || state !== "play") return;
   it.used = true;
-  flocks.push({
-    x: it.x,
-    type: it.type,
-    variant: it.variant ?? 0,
-    t: 0,
-    side: it.x < W / 2 ? -1 : 1,
-  });
+  // Its visual continues below the catch area; active bird helpers are unchanged.
 }
 function helperX(side) {
   return W * (side < 0 ? 0.17 : 0.83);

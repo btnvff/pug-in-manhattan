@@ -100,10 +100,28 @@ function simulate(game) {
   }
   return checkpoints;
 }
-mechanics(loadGame());
-const index = process.argv.indexOf("--compare");
-for (const seed of [42, 123, 2026]) {
-  const current = simulate(loadGame(null, seed));
-  if (index >= 0) assert.deepEqual(current, simulate(loadGame(process.argv[index + 1], seed)), "gameplay differs from reference");
+function coreCheckpoints(checkpoints) {
+  return checkpoints.map((value) => {
+    const state = JSON.parse(value);
+    // Missed-food scavengers are presentation; helpers/gifts remain in the comparison.
+    delete state.cats; delete state.flocks;
+    return state;
+  });
 }
-console.log("PASS: scoring, shield, bones, pause, jam, lose/restart, all powers; 3 seeded 120-second runs; render purity" + (index >= 0 ? "; identical to " + process.argv[index + 1] : ""));
+if (require.main === module) {
+  mechanics(loadGame());
+  const exact = process.argv.indexOf("--compare"), core = process.argv.indexOf("--compare-gameplay");
+  const index = Math.max(exact, core);
+  for (const seed of [42, 123, 2026]) {
+    const game = loadGame(null, seed), current = simulate(game);
+    if (index >= 0) {
+      const oldGame = loadGame(process.argv[index + 1], seed), previous = simulate(oldGame);
+      assert.deepEqual(core >= 0 ? coreCheckpoints(current) : current,
+        core >= 0 ? coreCheckpoints(previous) : previous, "gameplay differs from reference");
+      assert.equal(game.seed(), oldGame.seed(), "presentation cannot shift future gameplay RNG");
+    }
+  }
+  console.log("PASS: scoring, shield, bones, pause, jam, lose/restart, all powers; 3 seeded 120-second runs; render purity" +
+    (index >= 0 ? "; " + (core >= 0 ? "gameplay/RNG match " : "identical to ") + process.argv[index + 1] : ""));
+}
+module.exports = { loadGame };

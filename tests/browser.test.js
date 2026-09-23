@@ -26,6 +26,21 @@ const root = path.join(__dirname, "..");
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
     if (process.env.OFFLINE_BROWSER === "1") require("./browser-offline").installOfflinePages(context, root);
     await context.addInitScript(() => { window.requestAnimationFrame = () => 1; });
+    await context.addInitScript(() => {
+      Object.defineProperty(window, "THREE", { configurable: true, set(T) {
+        Object.defineProperty(window, "THREE", { value: T });
+        const Renderer = T.WebGLRenderer;
+        T.WebGLRenderer = class extends Renderer {
+          constructor(...args) {
+            super(...args);
+            const draw = this.render.bind(this);
+            this.render = (scene, camera) => {
+              window.reviewScene = scene; window.reviewRenderer = this; return draw(scene, camera);
+            };
+          }
+        };
+      }});
+    });
     const url = "http://127.0.0.1:" + server.address().port;
     const page = await context.newPage();
     page.on("pageerror", (error) => errors.push(error.message));
@@ -67,6 +82,54 @@ const root = path.join(__dirname, "..");
       render();
     });
     await capture("food-3d");
+    const continuation = await page.evaluate(() => {
+      start(); spawnIn = 999; prefs.sound = false; x = 320;
+      items = [{ type: 0, x: 65, y: landingY() - 1, speed: 240, variant: 2, age: 1, used: false }];
+      tick(1 / 60); render();
+      const drop = streetEvents.drops[0];
+      const mesh = reviewScene.children.find((node) => node.isGroup && node.position.z === 50);
+      const first = { x: mesh.position.x + W / 2, y: H / 2 - mesh.position.y };
+      for (let i = 0; i < 18; i++) tick(1 / 60);
+      render();
+      const after = reviewScene.children.find((node) => node.isGroup && node.position.z === 50);
+      return { first, last: H / 2 - after.position.y, expected: drop.y, h: H, same: mesh === after };
+    });
+    assert.equal(continuation.first.x, 65);
+    assert.equal(continuation.last, continuation.expected);
+    assert.ok(continuation.last > continuation.h && continuation.same, "same pooled 3D object remains visible through the lower edge");
+    await capture("miss-bottom-3d");
+    await page.evaluate(() => {
+      start(); spawnIn = 999; x = 320; points = 20;
+      streetEvents.eligible = 11;
+      items = [{ type: 0, x: 65, y: landingY() - 1, speed: 240, variant: 2, age: 1, used: false }];
+      tick(1 / 60); render();
+    });
+    assert.equal(await page.evaluate(() => cats.length), 1);
+    assert.equal(await page.evaluate(() => streetEvents.drops.length), 0, "event does not duplicate the missed sausage");
+    for (const moment of ["land", "approach", "pickup", "leave"]) {
+      if (moment !== "land") await page.evaluate(() => { for (let i = 0; i < 55; i++) tick(1 / 60); render(); });
+      await capture("street-cat-" + moment);
+      assert.equal(await page.evaluate(() => points), 19, "cat never adds rewards or extra penalties");
+    }
+    await page.evaluate(() => { for (let i = 0; i < 120; i++) tick(1 / 60); render(); });
+    assert.equal(await page.evaluate(() => cats.length), 0);
+    const dropResources = await page.evaluate(() => {
+      const samples = [];
+      for (let batch = 0; batch < 3; batch++) {
+        for (let cycle = 0; cycle < 8; cycle++) {
+          start(); spawnIn = 999; x = 320;
+          items = Array.from({ length: 9 }, (_, type) => ({ type, x: 60 + type * 22,
+            y: landingY() - 1, speed: 240, age: 1, variant: type % 8, used: false }));
+          tick(1 / 60); render();
+          for (let i = 0; i < 70; i++) tick(1 / 60);
+          render();
+        }
+        samples.push({ ...reviewRenderer.info.memory, programs: reviewRenderer.info.programs.length });
+      }
+      return samples;
+    });
+    assert.deepEqual(dropResources[1], dropResources[0]);
+    assert.deepEqual(dropResources[2], dropResources[0], "24 restart/miss cycles do not accumulate GPU resources");
     for (const kind of await page.evaluate(() => Object.keys(powerInfo))) {
       await page.evaluate((kind) => {
         start(); applyPower(kind);
