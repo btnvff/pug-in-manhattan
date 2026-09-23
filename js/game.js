@@ -731,5 +731,5 @@ function resize() {
   clearInput();
   resetMotion();
   invalidateScenery();
+  if (activeView) activeView.resize();
 }
-window.addEventListener("resize", resize);
