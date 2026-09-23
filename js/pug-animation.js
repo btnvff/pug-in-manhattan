@@ -42,17 +42,17 @@ function samplePugPose(signal, pose = {}) {
   pose.bodyY = (1 - Math.cos(gait * 2)) * 0.65 * move + good * 1.7 + win * (1 - Math.cos(time * 5)) * 1.5;
   pose.bodyRoll = (-(signal.lean ?? 0) * 0.7 + Math.sin(gait) * 0.012 * move) * edgeBlend;
   pose.stretch = 1 - Math.cos(gait * 2) * 0.012 * move - bad * 0.018 + good * 0.008;
-  pose.headY = breath * 0.42 * idle + Math.sin(gait * 2 - 0.5) * 0.48 * move + savor * 0.5 - bad * 0.6;
-  pose.headYaw = turn * 0.16 + scan * 0.055;
-  pose.headPitch = -look * 0.075 + (chewing ? Math.sin(chewPhase * Math.PI * 4) * 0.022 * savor : 0) + bad * 0.065 + sad * 0.035;
-  pose.headRoll = (-turn * 0.045 + scan * 0.034 + Math.sin(time * 1.1) * 0.008 * idle
-    + Math.sin(gait - 0.45) * 0.015 * move + bad * Math.sin(reactionPhase * Math.PI * 3) * 0.035 + sad * 0.045) * edgeBlend;
+  pose.headY = breath * 0.65 * idle + Math.sin(gait * 2 - 0.5) * 0.85 * move + savor * 0.7 - bad * 0.9;
+  pose.headYaw = turn * 0.265 + scan * 0.12;
+  pose.headPitch = -look * 0.14 + breath * .012 * idle + (chewing ? Math.sin(chewPhase * Math.PI * 4) * 0.035 * savor : 0) + bad * 0.085 + sad * 0.05;
+  pose.headRoll = (-turn * 0.065 + scan * 0.067 + Math.sin(time * 1.1) * 0.014 * idle
+    + Math.sin(gait - 0.45) * 0.025 * move + bad * Math.sin(reactionPhase * Math.PI * 3) * 0.045 + sad * 0.045) * edgeBlend;
   const blinkTime = time % 12.9;
   pose.blink = Math.max(pugPoseBlink(blinkTime, 2.85), pugPoseBlink(blinkTime, 7.45), pugPoseBlink(blinkTime, 7.78));
   pose.eyeOpen = Math.max(0.035, (1 - pose.blink) * (0.97 + look * 0.025 - joy * 0.18 - bad * 0.08 - sad * 0.05));
-  pose.eyeX = pugPoseClamp((signal.gazeX ?? 0) * 1.1 + scan * 0.65, -1.4, 1.4);
-  pose.eyeY = pugPoseClamp(-(signal.gazeY ?? 0) * 1.05, -1.2, 1.2);
-  pose.browLift = look * 0.6 + joy * 0.5 + sad * 0.4;
+  pose.eyeX = pugPoseClamp((signal.gazeX ?? 0) * 1.45 + scan * 1.1, -1.65, 1.65);
+  pose.eyeY = pugPoseClamp(-(signal.gazeY ?? 0) * 1.35 + look * .3, -1.4, 1.4);
+  pose.browLift = look * 1.05 + joy * 0.9 + sad * 0.7;
   pose.browTilt = sad * 0.07 + bad * 0.06 - joy * 0.025;
   pose.earPitch = Math.sin(time * 2.25 - 0.35) * 0.012 * idle + Math.sin(gait - 0.8) * 0.045 * move + earFlick * 0.06;
   pose.earFold = joy * 0.05 - bad * 0.055 - sad * 0.025;
@@ -62,7 +62,8 @@ function samplePugPose(signal, pose = {}) {
   pose.chew = savor * (0.45 + Math.sin(chewPhase * Math.PI * 3.5) ** 2 * 1.45);
   pose.jawSide = chewing ? Math.sin(chewPhase * Math.PI * 4) * savor * 0.45 : 0;
   pose.smile = joy * 0.06 - bad * 0.06 - sad * 0.04;
-  pose.tongue = chewing ? pugPosePulse(chewPhase, 0.72, 0.25) : bad * 0.35;
+  const pant = (1 - sad) * (1 - bad) * (1 - look * .65) * (mode === "menu" || win ? .78 : .58 + move * .18);
+  pose.tongue = chewing ? pugPosePulse(chewPhase, 0.66, 0.33) : Math.max(bad * .35, pant * (.85 + breath * .15));
   pose.leftStep = Math.sin(gait) * move;
   pose.rightStep = -pose.leftStep;
   // The wisps occupy less than one second of a 17.4-second idle cycle.
@@ -126,12 +127,13 @@ function animatePugModel(hero, signal) {
   parts.muzzle.scale.set(20.5 * (1 + pose.chew * 0.012), 9.2 * (1 - pose.chew * 0.012), 6.4);
   parts.muzzle.position.y = -6 + pose.joy * 0.5;
   parts.jaw.position.set(pose.jawSide, -13.5 - pose.chew, 28.5);
-  parts.mouth.scale.y = 2.4 * (0.28 + pose.chew * 0.28);
+  parts.mouth.scale.y = 2.4 * (0.4 + pose.chew * 0.28 + pose.tongue * .9);
   parts.tongue.visible = pose.tongue > 0.04;
-  parts.tongue.scale.y = 2.4 * pose.tongue;
-  parts.tongue.position.y = -13.5 - pose.chew * 0.5;
+  parts.tongue.scale.y = 4.5 * pose.tongue;
+  parts.tongue.position.y = -14.4 - pose.tongue * 2.3 - pose.chew * 0.5;
+  parts.tongue.rotation.z = -.12 + pose.jawSide * .12;
   parts.shadow.scale.x = 89 + pose.bodyY * 0.65;
-  parts.shadow.material.opacity = 0.24 - pose.bodyY * 0.012;
+  parts.shadow.material.opacity = 0.32 - pose.bodyY * 0.012;
   for (let i = 0; i < 2; i++) {
     const puff = parts.breath[i];
     const age = Math.max(0, Math.min(1, (pose.exhale - i * 0.13) / 0.9));

@@ -1,5 +1,5 @@
 // Background-only rigs. No gameplay RNG or independent animation loop.
-function createStreetActors(model, root, width, height, base) {
+function createStreetActors(model, root, width, height, base, perspective) {
   const T = window.THREE, people = [], cars = [], wheels = [], cycleLegs = [];
   const owned = [];
   const up = new T.Vector3(0, 1, 0), delta = new T.Vector3();
@@ -24,11 +24,10 @@ function createStreetActors(model, root, width, height, base) {
       knee.position.set(kx,ky,z); shoe.position.set(fx+1.5,fy,z);
     };
   }
-  for(let i=0;i<3;i++) {
+  for(let i=0;i<4;i++) {
     const person=model.group(root,0,height/2-base+2,-129);
-    person.scale.setScalar([.61,.69,.64][i]);
-    const color=['#375f86','#39745b','#b66a46'][i];
-    model.part(person,'ball',color,0,37,0,[6,8,6.8][i],15,5);
+    const color=['#4c687b','#507460','#a47656','#7b7976'][i];
+    model.part(person,'ball',color,0,37,0,[6,8,6.8,7][i],15,5);
     model.part(person,'ball','#c49d7e',0,59,0,5.8,7,5.5);
     model.part(person,'ball','#423c38',-1,63,-1,5.9,3.8,5.6);
     const legs=[leg(person,'#344857',-3,14,13,2.4),leg(person,'#344857',3,14,13,2.4)];
@@ -43,9 +42,9 @@ function createStreetActors(model, root, width, height, base) {
   const body=profile([[-51,9],[-53,18],[-48,22],[-28,23],[-20,25],[24,25],[33,22],[52,20],[54,12],[48,9]],26,1.2);
   const roof=profile([[-29,22],[-18,35],[-10,37],[12,37],[19,34],[30,22]],21,.8);
   const glass=profile([[-24,24],[-16,33],[11,34],[17,32],[25,24]],.7,.2);
-  for(let i=0;i<2;i++) {
+  for(let i=0;i<3;i++) {
     const car=model.group(root,0,height/2-base-37,-127); car.scale.setScalar(.8);
-    const color=i?'#39758e':'#efb82d';
+    const color=['#d7ab50','#628490','#7e898e'][i];
     for(const geometry of [body,roof]) car.add(new T.Mesh(geometry,model.material(color)));
     const windowMesh=new T.Mesh(glass,model.material('#213c50'));windowMesh.position.z=12;car.add(windowMesh);
     model.part(car,'box','#a5c3ce',-2,29,13,2,11,1);
@@ -79,16 +78,23 @@ function createStreetActors(model, root, width, height, base) {
     cycleLegs.push(leg(cycle,'#354958',z,15,14,2.3));
   }
   function animate(time) {
-    const route=width+200;
     people.forEach(({person,legs,arms},i)=>{
-      person.position.x=(time*12+i*route/3)%route-100-width/2;
+      const side=i%2?1:-1, depth=width*(.82+i*.47+Math.sin(time*.045+i)*.20);
+      const p0=perspective.project(side*width*.54,0,depth);
+      person.position.set(p0.x-width/2,height/2-p0.y,p0.z+4);
+      person.scale.setScalar(p0.scale*1.32);
       const p=time*(3.4+i*.25)+i*2;
       legs.forEach((pose,j)=>{const phase=p+j*Math.PI;pose(0,27,Math.cos(phase)*6,2+Math.max(0,Math.sin(phase))*3);});
       arms.forEach((pose,j)=>{const swing=Math.cos(p+j*Math.PI)*5;pose([0,46,j?6:-6],[swing,28,j?6:-6]);});
     });
-    const gap=Math.max(300,width*.7), road=gap*3;
-    cars.forEach((car,i)=>car.position.x=(time*29+i*gap)%road-150-width/2);
-    cycle.position.x=(time*29+2*gap)%road-150-width/2;
+    cars.forEach((car,i)=>{
+      const progress=(time*(i%2?-.021:.025)+i*.37+100)%1;
+      const p=perspective.project((progress-.5)*width*2.1,0,width*(.97+i*.82));
+      car.position.set(p.x-width/2,height/2-p.y,p.z+4);
+      car.scale.setScalar(p.scale*1.4);
+    });
+    const cycleDepth=width*(.89+(time*.012)%1.9), cp=perspective.project(-width*.40,12,cycleDepth);
+    cycle.position.set(cp.x-width/2,height/2-cp.y,cp.z+5);cycle.scale.setScalar(cp.scale*1.2);
     wheels.forEach(w=>w.rotation.z=-time*4);
     cycleLegs.forEach((pose,i)=>{const p=time*6+i*Math.PI;pose(-5,27,2+Math.cos(p)*4.2,4+Math.sin(p)*4.2);});
   }
