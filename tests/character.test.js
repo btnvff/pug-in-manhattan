@@ -54,6 +54,7 @@ assert.ok(eye.scale.z < 8, "eye depth is less than the old protruding sphere");
 assert.equal(parts.paws.length + parts.hindPaws.length, 4);
 assert.equal(hero.getObjectByName("rounded-head").material.vertexColors, true, "mask belongs to the head surface");
 assert.ok(hero.getObjectByName("continuous-muzzle"), "one continuous muzzle");
+assert.ok(hero.getObjectByName("shoulder-ruff"), "broad shoulders replace the separate narrow neck");
 assert.equal(parts.shadow.material.depthWrite, false);
 assert.equal(parts.shadow.material.map.image.width, 64);
 animate(); hero.updateMatrixWorld(true);
@@ -96,6 +97,9 @@ for (const state of ["menu", "play", "pause", "win", "lose"]) {
     assert.ok(pose.chew >= 0 && pose.chew < 2);
     assert.ok(Math.abs(pose.headYaw) < 0.23 && Math.abs(pose.headRoll) < 0.16);
     hero.updateMatrixWorld(true);
+    const headBounds = new T.Box3().setFromObject(hero.getObjectByName("rounded-head"));
+    const shoulderBounds = new T.Box3().setFromObject(hero.getObjectByName("shoulder-ruff"));
+    assert.ok(shoulderBounds.max.y - headBounds.min.y > 6, "head and shoulders remain joined through all poses");
     for (const node of meshes) assert.ok(node.matrixWorld.elements.every(Number.isFinite));
     // Exact support of each ellipsoid along the world Y axis (matrix includes its scale).
     for (let i = 0; i < 2; i++) {

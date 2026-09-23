@@ -113,7 +113,13 @@ function createModelFactory() {
   function catModel(coat = 0) {
     const root = group(), color = ["#d3995c", "#8b969a", "#ded7bd"][coat % 3];
     part(root, "ball", color, 0, 17, 0, 25, 13, 12);
-    for (let i = 0; i < 4; i++) part(root, "capsule", color, -15 + i * 10, 7, i % 2 ? 6 : -6, 3, 4, 3);
+    root.userData.legs = [];
+    for (let i = 0; i < 4; i++) {
+      const limb = group(root, i < 2 ? -15 : 15, 13, i % 2 ? 6 : -6);
+      part(limb, "capsule", color, 0, -6, 0, 3, 3, 3);
+      part(limb, "ball", color, 1, -11, 1, 4, 2, 3);
+      root.userData.legs.push(limb);
+    }
     part(root, "ball", color, 18, 29, 2, 13, 12, 11);
     for (const side of [-1, 1]) {
       part(root, "cone", color, 18 + side * 8, 41, 2, 6, 14, 5);

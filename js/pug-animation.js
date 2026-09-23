@@ -81,8 +81,8 @@ function animatePugModel(hero, signal) {
   parts.body.rotation.z = pose.bodyRoll;
   const width = 1 / Math.sqrt(pose.stretch);
   parts.body.scale.set(width, pose.stretch, width);
-  parts.torso.scale.set(33 * (1 + pose.breath * 0.006), 31 * (1 + pose.breath * 0.008), 25 * (1 + pose.breath * 0.01));
-  parts.head.position.y = 93 + pose.headY;
+  parts.torso.scale.set(33 * (1 + pose.breath * 0.006), 35 * (1 + pose.breath * 0.008), 26 * (1 + pose.breath * 0.01));
+  parts.head.position.y = 92 + pose.headY;
   parts.head.position.z = 6 - pose.bad * 1.5;
   parts.head.rotation.set(pose.headPitch, pose.headYaw, pose.headRoll);
   parts.tail.rotation.z = pose.tail;

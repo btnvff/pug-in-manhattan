@@ -258,6 +258,7 @@ function ui() {
     overlay.innerHTML =
       '<div class="panel"><div class="badge">Сосиски подождут</div><h2>Маленький привал</h2><p>Мопс переводит дух.<br>Город никуда не убежит.</p><button class="cta" id="resume">Продолжить</button><button class="secondary" id="restart">Заново</button><button class="secondary" id="menu">Главное меню</button></div>';
     $("resume").onclick = () => {
+      unlockAudio();
       state = "play";
       ui();
       sound("button");
@@ -293,6 +294,7 @@ function ui() {
 }
 function menu() {
   state = "menu";
+  resetStreetEvents();
   clearInput();
   items = [];
   effects = [];
@@ -308,6 +310,7 @@ function menu() {
 function start() {
   unlockAudio();
   audioScene("restart");
+  resetStreetEvents();
   difficulty = 0;
   resetRunState();
   clearInput();
@@ -340,7 +343,7 @@ function pause() {
 }
 $("pause").onclick = pause;
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) pause();
+  if (document.hidden) { pause(); stopAudioVoices(); }
 });
 window.addEventListener("blur", () => {
   pause();
@@ -348,6 +351,7 @@ window.addEventListener("blur", () => {
 });
 function finish(win) {
   state = win ? "win" : "lose";
+  resetStreetEvents();
   clearInput();
   items = [];
   cats = [];
@@ -456,17 +460,21 @@ function missSausage(it) {
   it.used = true;
   const loss = Math.min(BALANCE.missedSausagePenalty, points);
   points -= loss;
-  sound("land", (it.x / W) * 2 - 1);
-  cats.push({
-    x: it.x,
-    t: 0,
-    wait: 0.55,
-    travel: Math.max(0.9, Math.min(it.x + 40, W + 40 - it.x) / 150),
-    side: it.x < W / 2 ? -1 : 1,
-    variant: it.variant ?? 0,
-    coat: Math.floor(Math.random() * 3),
-  });
-  effects.push({
+  // Preserve the old coat draw so this visual change cannot alter future spawns.
+  const coat = Math.floor(Math.random() * 3), streetCat = chooseStreetCat(it);
+  if (streetCat) {
+    sound("land", (it.x / W) * 2 - 1);
+    cats.push({
+      x: it.x,
+      t: 0,
+      wait: 0.55,
+      travel: Math.max(0.9, Math.min(it.x + 40, W + 40 - it.x) / 150),
+      side: it.x < W / 2 ? -1 : 1,
+      variant: it.variant ?? 0,
+      coat,
+    });
+  }
+  if (loss || streetCat) effects.push({
     x: it.x,
     y: H - 97,
     t: 0,
@@ -474,6 +482,7 @@ function missSausage(it) {
     good: false,
   });
   hud();
+  return streetCat;
 }
 function trajectoryClear(sx, speed) {
   return !items.some((it) => {
@@ -593,6 +602,7 @@ function tick(dt) {
       spawnIn = rand(...challenge().spawn);
     }
 
+    stepStreetEvents(dt);
     for (let it of items) {
       it.age = (it.age ?? 0) + dt;
       if (it.warning > 0) {
@@ -635,9 +645,11 @@ function tick(dt) {
       if (state !== "play") break;
       checkNearMiss(it, old);
       if (!it.used && it.y >= landingY()) {
-        if (it.type === 0) missSausage(it);
+        let streetCat = false;
+        if (it.type === 0) streetCat = missSausage(it);
         else if (it.type >= 4 && it.type <= 6) missVegetable(it);
         else it.used = true;
+        if (it.used && !streetCat) continueMissedDrop(it, dt > 0 ? (it.y - old) / dt : it.speed);
       }
     }
     cats.forEach((c) => {
@@ -665,6 +677,7 @@ function tick(dt) {
 }
 cv.addEventListener("pointerdown", (e) => {
   if (state !== "play" || drag !== null) return;
+  if (audioSystem.context?.state !== "running") unlockAudio();
   let r = cv.getBoundingClientRect(),
     px = e.clientX - r.left,
     py = e.clientY - r.top;
@@ -699,6 +712,7 @@ window.addEventListener("keydown", (e) => {
   let k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (["ArrowLeft", "ArrowRight", "a", "d"].includes(k) && state === "play") {
     if (e.target?.closest?.("button")) return;
+    if (audioSystem.context?.state !== "running") unlockAudio();
     keys.add(k);
     e.preventDefault();
   }
@@ -708,6 +722,7 @@ window.addEventListener("keyup", (e) =>
   keys.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key),
 );
 function resize() {
+  if (!cv.clientWidth || !cv.clientHeight) return;
   const oldW = W,
     oldH = H;
   W = cv.clientWidth;
@@ -728,6 +743,7 @@ function resize() {
     g.sx *= W / oldW;
     g.sy *= H / oldH;
   });
+  resizeStreetEvents(W / oldW, H / oldH);
   clearInput();
   resetMotion();
   invalidateScenery();

@@ -4,16 +4,16 @@ function renderCanvasScene() {
   city(worldTime);
   // Neutral translucent mist reduces background chroma without filtering foreground.
   ctx.save();
-  ctx.fillStyle = "rgba(210,218,223,.39)";
+  ctx.fillStyle = "rgba(202,224,238,.12)";
   ctx.fillRect(0, 0, W, H);
   ctx.restore();
   if (state === "menu") {
     let landscape = W > 550;
     pug(
-      landscape ? W * 0.25 : W / 2,
-      landscape ? H - 35 : H < 660 ? H - 256 : H * 0.61,
+      W / 2,
+      ground(),
       clock,
-      landscape ? 1 : H < 660 ? 0.75 : 1.16,
+      heroScale(),
     );
     if (!landscape) {
       drawFood(0, W * 0.17, H * 0.48, -0.4);
@@ -21,6 +21,10 @@ function renderCanvasScene() {
       drawFood(0, W * 0.8, H * 0.59, 0.5);
     }
   } else {
+    for (const drop of streetEvents.drops)
+      drawFood(drop.type, drop.x, drop.y,
+        (drop.angle ?? 0) + (drop.age ?? 0) * (drop.spin ?? 0) + Math.sin((drop.age ?? 0) * 2 + (drop.phase ?? 0)) * 0.22,
+        drop.variant);
     for (let cat of cats) drawCat(cat);
     for (const f of flocks) drawSparrows(f);
     drawPowerAura();

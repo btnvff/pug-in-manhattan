@@ -718,13 +718,13 @@ function drawCat(c) {
     target = c.x - inward * 27 * (c.helper ? 1 : 1.1),
     runIn = easeInOut((u - timing.wait) / timing.travel),
     exit = easeInOut((u - timing.leave) / timing.travel),
-    px =
+    px = c.presentation ? c.presentation.x :
       u < timing.leave
         ? edge + (target - edge) * runIn
         : target + (edge - target) * exit,
-    dir = u < timing.leave ? inward : c.side,
+    dir = c.presentation ? c.presentation.direction : u < timing.leave ? inward : c.side,
     coat = ["#d18c4c", "#787e80", "#e2d8c5"][c.coat],
-    running = (u > timing.wait && u < timing.arrival) || u > timing.leave;
+    running = c.presentation ? c.presentation.running : (u > timing.wait && u < timing.arrival) || u > timing.leave;
   if (!c.helper && u < timing.pickup) {
     ellipse(c.x, landingY() + 10, 25, 3, "#29353130", null);
     drawFood(0, c.x, landingY(), 0.2, c.variant);
