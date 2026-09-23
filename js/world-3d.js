@@ -1,140 +1,267 @@
-// A shallow Manhattan diorama behind the unchanged screen-space playing field.
+// A warm, layered Manhattan diorama behind the screen-space playing field.
+// Scene pixels and all animation below are visual only; gameplay/RNG stay untouched.
 function createThreeWorld(model, width, height) {
   const T = window.THREE;
   const root = model.group(), traffic = [], birds = [], steam = [], walkers = [], clouds = [];
-  const textures = [], disposableMaterials = [];
-  const base = height * 0.7, walk = height - 148;
-  const batches = new Map();
-  function box(color, x, y, z, sx, sy, sz) {
-    if (!batches.has(color)) batches.set(color, []);
-    batches.get(color).push([x - width / 2, height / 2 - y, z, sx, sy, sz]);
+  const layers = { far: model.group(root), midground: model.group(root), foreground: model.group(root) };
+  for (const [name, layer] of Object.entries(layers)) layer.name = "environment-" + name;
+  // Separate parents are ready for future parallax. They stay fixed during play.
+  const textures = [], disposableMaterials = [], geometries = new Set();
+  const materials = new Map(), batches = new Map();
+  const base = height * 0.735, walk = height - 134;
+  const buildingWidth = Math.min(180, width * 0.275);
+  let layer = layers.far;
+  function material(color) {
+    if (!materials.has(color)) {
+      // Art-directed facade colors do not change the lighting of game objects.
+      const mat = new T.MeshBasicMaterial({ color, toneMapped: false });
+      materials.set(color, mat); disposableMaterials.push(mat);
+    }
+    return materials.get(color);
   }
-  function ball(color, x, y, z, sx, sy, sz) {
-    return model.part(root, "ball", color, x - width / 2, height / 2 - y, z, sx, sy, sz);
+  function box(color, x, y, z, sx, sy, sz = 2, angle = 0) {
+    const key = layer.name + color;
+    if (!batches.has(key)) batches.set(key, { parent: layer, color, entries: [] });
+    batches.get(key).entries.push([x - width / 2, height / 2 - y, z, sx, sy, sz, angle]);
   }
-  function sign(text, x, y, w, h, bg, fg, z = -135) {
+  function line(color, x1, y1, x2, y2, z, thickness) {
+    box(color, (x1 + x2) / 2, (y1 + y2) / 2, z, Math.hypot(x2 - x1, y2 - y1), thickness, 1, -Math.atan2(y2 - y1, x2 - x1));
+  }
+  let planeGeometry;
+  let roundedGeometry;
+  function roundedPart(parent, color, x, y, z, sx, sy, sz) {
+    if (!roundedGeometry) {
+      const shape = new T.Shape();
+      shape.moveTo(-0.34, -0.5); shape.lineTo(0.34, -0.5);
+      shape.quadraticCurveTo(0.5, -0.5, 0.5, -0.34); shape.lineTo(0.5, 0.34);
+      shape.quadraticCurveTo(0.5, 0.5, 0.34, 0.5); shape.lineTo(-0.34, 0.5);
+      shape.quadraticCurveTo(-0.5, 0.5, -0.5, 0.34); shape.lineTo(-0.5, -0.34);
+      shape.quadraticCurveTo(-0.5, -0.5, -0.34, -0.5);
+      roundedGeometry = new T.ExtrudeGeometry(shape, { depth: 1, bevelEnabled: false, curveSegments: 4, steps: 1 });
+      roundedGeometry.translate(0, 0, -0.5); geometries.add(roundedGeometry);
+    }
+    const mesh = new T.Mesh(roundedGeometry, model.material(color));
+    mesh.position.set(x, y, z); mesh.scale.set(sx, sy, sz); parent.add(mesh);
+    return mesh;
+  }
+  function paintedPlane(x, y, z, w, h, cw, ch, paint) {
     const canvas = document.createElement("canvas");
-    canvas.width = 512; canvas.height = 128;
+    canvas.width = cw; canvas.height = ch;
     const pen = canvas.getContext("2d");
-    pen.fillStyle = bg; pen.fillRect(0, 0, 512, 128);
-    pen.strokeStyle = fg; pen.lineWidth = 5; pen.strokeRect(7, 7, 498, 114);
-    pen.fillStyle = fg; pen.font = "bold 48px Georgia";
-    pen.textAlign = "center"; pen.textBaseline = "middle";
-    pen.fillText(text, 256, 67, 478);
+    paint(pen, cw, ch);
     const texture = new T.CanvasTexture(canvas);
     texture.colorSpace = T.SRGBColorSpace;
     textures.push(texture);
-    const mat = new T.MeshBasicMaterial({ map: texture });
+    const mat = new T.MeshBasicMaterial({ map: texture, toneMapped: false });
     disposableMaterials.push(mat);
-    const mesh = new T.Mesh(new T.PlaneGeometry(w, h), mat);
+    if (!planeGeometry) { planeGeometry = new T.PlaneGeometry(1, 1); geometries.add(planeGeometry); }
+    const mesh = new T.Mesh(planeGeometry, mat);
     mesh.position.set(x - width / 2, height / 2 - y, z);
-    root.add(mesh);
+    mesh.scale.set(w, h, 1); layer.add(mesh);
+    return mesh;
+  }
+  function sign(text, subtitle, x, y, w, h, bg, fg, z = -125) {
+    paintedPlane(x, y, z, w, h, 512, 160, (pen, cw, ch) => {
+      pen.fillStyle = bg; pen.fillRect(0, 0, cw, ch);
+      pen.strokeStyle = fg; pen.globalAlpha = 0.55; pen.lineWidth = 2;
+      pen.strokeRect(12, 12, cw - 24, ch - 24); pen.globalAlpha = 1;
+      pen.fillStyle = fg; pen.textAlign = "center"; pen.textBaseline = "middle";
+      pen.font = "bold 54px Georgia"; pen.fillText(text, cw / 2, subtitle ? 65 : 84, cw - 52);
+      if (subtitle) { pen.font = "22px sans-serif"; pen.fillText(subtitle, cw / 2, 117, cw - 60); }
+    });
   }
   function dispose() {
-    const sharedGeometry = new Set(Object.values(model.geometries));
-    root.traverse((object) => {
-      if (object.isInstancedMesh) object.dispose();
-      if (object.geometry && !sharedGeometry.has(object.geometry)) object.geometry.dispose();
-    });
+    root.traverse((object) => { if (object.isInstancedMesh) object.dispose(); });
+    geometries.forEach((geometry) => geometry.dispose());
     textures.forEach((texture) => texture.dispose());
     disposableMaterials.forEach((mat) => mat.dispose());
   }
   try {
-    // Sky, distant buildings and bridge remain quiet behind the food silhouettes.
-    box("#bce5eb", width / 2, height / 2, -700, width * 2, height * 2, 10);
-    ball("#fff0be", width * 0.79, height * 0.17, -600, 32, 32, 10);
-    for (let i = 0; i < 11; i++) {
-      const bx = (i + 0.3) * width / 10, bh = 100 + (i * 47) % 125;
-      const bw = width / 11;
-      box(["#8da6b8", "#b8aaa3", "#9ab3b8"][i % 3], bx, base - bh / 2 - 45, -470, bw, bh, 40);
-      for (let row = 0; row < 7; row++) for (let col = 0; col < 2; col++)
-        box("#637e92", bx - bw * 0.22 + col * bw * 0.44, base - bh + 25 + row * 16, -449, 4, 8, 1);
+    paintedPlane(width / 2, height / 2, -720, width + 4, height + 4, 256, 512, (pen, cw, ch) => {
+      const sky = pen.createLinearGradient(0, 0, 0, ch);
+      sky.addColorStop(0, "#afd9e7"); sky.addColorStop(0.35, "#d3e7e6");
+      sky.addColorStop(0.72, "#f5ead5"); sky.addColorStop(1, "#f5ead5");
+      pen.fillStyle = sky; pen.fillRect(0, 0, cw, ch);
+      const glow = pen.createRadialGradient(cw * 0.76, ch * 0.2, 2, cw * 0.76, ch * 0.2, cw * 0.65);
+      glow.addColorStop(0, "rgba(255,249,221,0.62)"); glow.addColorStop(1, "rgba(255,249,221,0)");
+      pen.fillStyle = glow; pen.fillRect(0, 0, cw, ch);
+    });
+    // Stepped silhouettes, close values and sparse windows create atmospheric depth.
+    const skyline = [0.16, 0.21, 0.13, 0.24, 0.19, 0.28, 0.17, 0.23, 0.15, 0.25, 0.18];
+    for (let i = 0; i < skyline.length; i++) {
+      const bw = width / 9.5, bx = (i - 0.2) * width / 10;
+      const bh = height * skyline[i], bottom = base - 18;
+      const color = ["#bed2d4", "#cfdbd8", "#d8d9cb"][i % 3];
+      box(color, bx, bottom - bh / 2, -530, bw, bh, 12);
+      box(color, bx, bottom - bh - 8, -530, bw * 0.66, 16, 12);
+      box("#dce5df", bx - bw * 0.36, bottom - bh / 2, -522, 3, bh - 8);
+      for (let row = 0; row < 4; row++) for (let col = 0; col < 2; col++)
+        box("#b2c9cd", bx + (col - 0.5) * bw * 0.36, bottom - bh + 24 + row * (bh - 36) / 4, -520, 3, 8);
     }
-    const towerX = width * 0.54, towerTop = height * 0.30;
-    for (const side of [-1, 1]) {
-      const tx = towerX + side * 28;
-      box("#688c9c", tx, (towerTop + base - 50) / 2, -390, 10, base - 50 - towerTop, 20);
-      box("#87a6aa", tx, towerTop, -389, 20, 10, 24);
-      for (let i = 0; i < 15; i++) {
-        const u = i / 14, end = side < 0 ? -20 : width + 20;
-        const xx = tx + (end - tx) * u;
-        const yy = towerTop + 15 + (base - 80 - towerTop) * (2 * u - u * u);
-        model.rod(root, [xx - width / 2, height / 2 - yy, -380], [xx - width / 2, height / 2 - base + 55, -380], 0.7, "#9db6b9");
-        if (i) {
-          const prev = (i - 1) / 14;
-          model.rod(root, [tx + (end - tx) * prev - width / 2, height / 2 - towerTop - 15 - (base - 80 - towerTop) * (2 * prev - prev * prev), -380], [xx - width / 2, height / 2 - yy, -380], 1.5, "#6e929f");
-        }
-      }
+    const spireX = width * 0.59, spireTop = height * 0.385;
+    box("#bfd3d6", spireX, (spireTop + base) / 2, -510, width * 0.09, base - spireTop, 15);
+    box("#cadbdc", spireX - 3, spireTop - 9, -510, width * 0.062, 18, 15);
+    box("#cadbdc", spireX - 3, spireTop - 23, -510, width * 0.032, 16, 15);
+    box("#bfd3d6", spireX - 3, spireTop - 42, -510, 2, 28);
+    // The bridge sits low in the haze; its towers are tucked behind the edge facades.
+    const bridgeTop = height * 0.55, deck = base - 35;
+    const towers = [width * 0.20, width * 0.80];
+    for (const tx of towers) {
+      for (const dx of [-8, 8]) box("#adc6c5", tx + dx, (bridgeTop + deck) / 2, -420, 5, deck - bridgeTop, 8);
+      box("#adc6c5", tx, bridgeTop, -420, 26, 6, 8);
+      box("#adc6c5", tx, bridgeTop + 18, -420, 21, 4, 8);
     }
-    box("#688c9c", towerX, towerTop + 40, -382, 58, 10, 16);
-    box("#688c9c", width / 2, base - 50, -375, width, 10, 18);
-    // Brownstones: warm brick, recessed glazing, cornices and iron balconies.
+    let previous;
+    for (let i = 0; i <= 18; i++) {
+      const u = i / 18, xx = towers[0] + (towers[1] - towers[0]) * u;
+      const yy = bridgeTop + 5 + Math.sin(u * Math.PI) * (deck - bridgeTop - 15);
+      if (previous) line("#b0c9c7", previous.x, previous.y, xx, yy, -408, 1.5);
+      if (i % 2 === 0) line("#c1d3cd", xx, yy, xx, deck, -409, 0.8);
+      previous = { x: xx, y: yy };
+    }
+    box("#b7ccca", width / 2, deck, -400, width, 7, 8);
+    box("#d4ddd3", width / 2, deck - 4, -394, width, 2);
+
+    layer = layers.midground;
+    // Narrow side walls and layered cornices give the orthographic street volume.
     for (let side = 0; side < 2; side++) {
-      const bw = width * 0.29, bx = side ? width - bw / 2 + 7 : bw / 2 - 7;
-      const top = height * (side ? 0.34 : 0.38), bh = base - top;
-      const color = side ? "#bc977a" : "#ad7461";
-      box(color, bx, top + bh / 2, -210, bw, bh, 110);
-      box("#dccab0", bx, top - 3, -195, bw + 12, 9, 128);
-      box("#887e72", bx, top - 10, -200, bw + 7, 7, 119);
-      for (let yy = top + 8; yy < base - 85; yy += 14)
-        box("#9b7667", bx, yy, -154, bw, 0.8, 1);
+      const bw = buildingWidth, bx = side ? width - bw / 2 + 7 : bw / 2 - 7;
+      const top = height * (side ? 0.335 : 0.385), bh = base - top;
+      const wall = side ? "#e2c8a7" : "#d79d84", shade = side ? "#c7af94" : "#bb816e";
+      const slot = (bh - 108) / 3;
+      box(shade, bx + (side ? -8 : 8), top + bh / 2 + 7, -236, bw + 15, bh - 14, 40);
+      box(wall, bx, top + bh / 2, -202, bw, bh, 38);
+      // Baked daylight and soft recess shadows add depth without shadow maps.
+      paintedPlane(bx, top + bh / 2, -181, bw, bh, 128, 512, (pen, cw, ch) => {
+        const light = pen.createLinearGradient(0, 0, cw, ch * 0.25);
+        light.addColorStop(0, side ? "#eed9bc" : "#e7b297");
+        light.addColorStop(0.55, wall); light.addColorStop(1, wall);
+        pen.fillStyle = light; pen.fillRect(0, 0, cw, ch);
+        const cornice = pen.createLinearGradient(0, 0, 0, ch * 0.09);
+        cornice.addColorStop(0, "rgba(106,78,56,0.18)"); cornice.addColorStop(1, "rgba(106,78,56,0)");
+        pen.fillStyle = cornice; pen.fillRect(0, 0, cw, ch * 0.09);
+        pen.fillStyle = shade; pen.shadowColor = "rgba(103,74,53,0.22)";
+        pen.shadowBlur = 5; pen.shadowOffsetX = 3; pen.shadowOffsetY = 4;
+        for (let row = 0; row < 3; row++) for (let col = 0; col < 2; col++) {
+          const wx = cw * (0.5 + (col - 0.5) * 0.46), wy = (23 + slot * (row + 0.5)) / bh * ch;
+          const ww = (bw * 0.265 + 7) / bw * cw, wh = (Math.min(48, slot * 0.65) + 8) / bh * ch;
+          pen.fillRect(wx - ww / 2, wy - wh / 2, ww, wh);
+        }
+      });
+      box(side ? "#ead4b8" : "#e7b198", bx - bw / 2 + 5, top + bh / 2, -179, 7, bh - 8);
+      box(shade, bx, top + 8, -177, bw, 9);
+      box("#ecddc3", bx, top - 1, -170, bw + 10, 8, 16);
+      box("#f7ead3", bx - 1, top - 7, -170, bw + 15, 4, 20);
+      box(side ? "#c2ac92" : "#ba8774", bx, top - 12, -180, bw + 6, 6, 12);
+      // Brick accents are grouped at the corners, never a full-screen line grid.
+      for (let row = 0; row < 5; row++) {
+        const yy = top + 30 + row * (bh - 120) / 5;
+        const xx = bx + (side ? 1 : -1) * bw * 0.41;
+        box(shade, xx, yy, -179, 10, 1.2);
+        box(shade, xx + 4, yy + 7, -179, 10, 1.2);
+      }
       for (let row = 0; row < 3; row++) for (let col = 0; col < 2; col++) {
-        const wx = bx - bw * 0.25 + col * bw * 0.50;
-        const wy = top + 30 + row * Math.max(42, (bh - 106) / 3);
-        const ww = bw * 0.28, wh = Math.max(28, (bh - 125) / 3);
-        box("#dfc8a4", wx, wy, -149, ww + 6, wh + 7, 8);
-        box("#334e60", wx, wy, -143, ww, wh, 2);
-        box("#77999d", wx - ww * 0.18, wy - wh * 0.17, -141, ww * 0.3, wh * 0.48, 1);
-        box("#bdbaa7", wx, wy, -139, 2, wh, 3);
-        box("#bdbaa7", wx, wy, -139, ww, 2, 3);
-        box("#e1ccb0", wx, wy + wh / 2 + 3, -137, ww + 10, 5, 16);
-        if (col === side) {
-          box("#4d6063", wx, wy + wh / 2 + 9, -128, ww + 16, 3, 28);
-          for (let k = -2; k <= 2; k++) box("#506569", wx + k * ww / 4, wy + wh / 2, -112, 1.3, 19, 1.3);
-          box("#506569", wx, wy + wh / 2 - 9, -112, ww + 16, 2, 2);
+        const wx = bx + (col - 0.5) * bw * 0.46, wy = top + 23 + slot * (row + 0.5);
+        const ww = bw * 0.265, wh = Math.min(48, slot * 0.65);
+        box(shade, wx + 2, wy + 4, -174, ww + 10, wh + 11, 3);
+        box("#f1dec0", wx, wy, -168, ww + 7, wh + 8, 8);
+        box("#789da6", wx, wy, -162, ww, wh, 2);
+        box("#a8c7ca", wx - ww * 0.22, wy - wh * 0.12, -159, ww * 0.23, wh * 0.69);
+        box("#c5d8d4", wx - ww * 0.22, wy - wh * 0.36, -157, ww * 0.23, wh * 0.16);
+        box("#e8d6b9", wx, wy + 3, -155, ww, 2.2, 3);
+        box("#fff0d5", wx - 1, wy + wh / 2 + 6, -151, ww + 13, 4, 15);
+        // One quiet iron balcony per facade, on its outside edge.
+        if (row === 1 && col === side) {
+          box("#78928a", wx, wy + wh / 2 + 13, -140, ww + 15, 4, 22);
+          for (let k = -2; k <= 2; k++) box("#78928a", wx + k * ww / 4, wy + wh / 2 + 3, -126, 1.4, 18);
+          box("#6f8983", wx, wy + wh / 2 - 6, -124, ww + 15, 2.5);
         }
       }
-      box("#3b6867", bx, base - 39, -146, bw - 12, 72, 12);
+      const shop = side ? "#668e81" : "#ad6c58";
+      box(shade, bx, base - 47, -175, bw, 96, 3);
+      box("#e9d7ba", bx, base - 36, -166, bw - 8, 72, 12);
+      box(shop, bx, base - 35, -157, bw - 17, 66, 10);
       for (let col = -1; col <= 1; col++) {
-        box("#244956", bx + col * bw * 0.27, base - 31, -138, bw * 0.23, 47, 2);
-        box("#8aa3a1", bx + col * bw * 0.27, base - 31, -136, 2, 47, 2);
+        const wx = bx + col * bw * 0.255;
+        box("#64898e", wx, base - 35, -150, bw * 0.21, 51, 2);
+        box("#99bbb8", wx - 3, base - 43, -146, bw * 0.10, 29);
+        box("#c4d4c5", wx - 4, base - 54, -144, bw * 0.08, 6);
+        box("#dbc8a9", wx, base - 25, -143, bw * 0.21, 2);
       }
-      sign(side ? "DELI & GROCERY" : "JOE’S PIZZA", bx, base - 80, bw - 5, 21, side ? "#315f59" : "#874c3e", "#f4e5c9");
-      for (let i = 0; i < 7; i++)
-        box(i % 2 ? "#e6d8b8" : side ? "#609084" : "#bd7461", bx - bw / 2 + (i + 0.5) * bw / 7, base - 61, -125, bw / 7, 9, 27);
+      box("#efdcc0", bx, base - 87, -144, bw + 2, 26, 10);
+      sign(side ? "CORNER DELI" : "CANAL BAKERY", side ? "FRESH EVERY DAY" : "BREAD  &  COFFEE", bx, base - 87, bw - 4, 22, shop, "#f9edd5");
+      // Short awnings have a sunlit top and a shaded valance.
+      for (let i = 0; i < 7; i++) {
+        const aw = (bw + 4) / 7, ax = bx - (bw + 4) / 2 + (i + 0.5) * aw;
+        const light = i % 2 ? "#f3e7ce" : side ? "#90b09b" : "#ce9075";
+        box(light, ax, base - 64, -135, aw + 0.2, 13, 18);
+        box(i % 2 ? "#e1d3b9" : shop, ax, base - 55, -123, aw + 0.2, 6, 5);
+      }
+      box("#e9d7ba", bx, base + 1, -151, bw + 9, 6, 16);
     }
-    const tank = model.group(root, width * 0.82 - width / 2, height / 2 - height * 0.34 + 27, -225);
-    model.part(tank, "tube", "#9b8768", 0, 10, 0, 20, 33, 20);
-    model.part(tank, "cone", "#62777a", 0, 34, 0, 25, 16, 25);
-    for (const side of [-1, 1]) model.rod(tank, [side * 16, -6, 0], [side * 21, -26, 0], 2, "#576565");
-    box("#697c88", width / 2, base + (walk - base) / 2, -180, width, walk - base, 20);
-    for (let i = 0; i < 5; i++) box("#dacaa1", i * 110 + 25, base + 34, -167, 36, 2, 1);
-    box("#c3bfb1", width / 2, walk + (height - walk) / 2, -100, width, height - walk, 30);
-    box("#e0dcd0", width / 2, walk + 3, -80, width, 8, 12);
-    for (let i = 0; i < 9; i++) box("#a8aa9e", i * 67, walk + 80, -84, 1, 152, 1);
-    box("#a8aa9e", width / 2, height - 44, -84, width, 1, 1);
-    box("#527773", width * 0.70, base - 35, -110, 3, 111, 3);
-    sign("CANAL ST", width * 0.70, base - 85, 62, 15, "#347565", "#f2ebd6", -102);
-    const hydrant = model.group(root, 22 - width / 2, height / 2 - walk - 14, -56);
-    model.part(hydrant, "tube", "#be6552", 0, 14, 0, 8, 31, 8);
-    model.part(hydrant, "ball", "#d77c60", 0, 31, 0, 10, 6, 10);
-    model.rod(hydrant, [-14, 17, 0], [14, 17, 0], 5, "#ae5b4c");
-    for (const [color, entries] of batches) {
-      const mesh = new T.InstancedMesh(model.geometries.box, model.material(color), entries.length);
+    const tank = model.group(layers.midground, width - buildingWidth * 0.58 - width / 2, height / 2 - height * 0.335 + 31, -225);
+    model.part(tank, "tube", "#ac8b70", 0, 6, 0, 16, 27, 16);
+    model.part(tank, "cone", "#728c88", 0, 26, 0, 20, 12, 20);
+    for (const yy of [-3, 14]) model.part(tank, "tube", "#7f8270", 0, yy, 0, 16.4, 2, 16.4);
+    for (const side of [-1, 1]) model.rod(tank, [side * 12, -6, 0], [side * 17, -29, 0], 1.5, "#7a8c84");
+
+    layer = layers.foreground;
+    box("#dacfb9", width / 2, base + 5, -191, width, 16, 8);
+    box("#f3e5cf", width / 2, base + 1, -184, width, 5);
+    paintedPlane(width / 2, (base + walk) / 2, -181, width, walk - base, 8, 128, (pen, cw, ch) => {
+      const road = pen.createLinearGradient(0, 0, 0, ch);
+      road.addColorStop(0, "#abbab8"); road.addColorStop(1, "#bec8c0");
+      pen.fillStyle = road; pen.fillRect(0, 0, cw, ch);
+    });
+    for (let i = -1; i <= Math.ceil(width / 100); i++) box("#dfe1cc", i * 100 + 36, base + (walk - base) * 0.52, -170, 28, 2);
+    // Perspective paving fans toward the horizon; low contrast keeps the pug clear.
+    paintedPlane(width / 2, (walk + height) / 2, -100, width, height - walk, 8, 128, (pen, cw, ch) => {
+      const pavement = pen.createLinearGradient(0, 0, 0, ch);
+      pavement.addColorStop(0, "#e4d7bf"); pavement.addColorStop(1, "#f3e6ce");
+      pen.fillStyle = pavement; pen.fillRect(0, 0, cw, ch);
+    });
+    box("#a8b5ac", width / 2, walk - 3, -94, width, 7);
+    box("#faf0d9", width / 2, walk + 2, -78, width, 6, 8);
+    box("#cebea4", width / 2, walk + 7, -77, width, 3);
+    for (let i = -3; i <= 3; i++) {
+      const x1 = width / 2 + i * 66, x2 = width / 2 + i * 107;
+      line("#dcd0b8", x1, walk + 10, x2, height, -76, 0.9);
+    }
+    line("#dfd2ba", 0, height - 37, width, height - 37, -76, 1);
+    // Details frame the playfield. No tall foreground prop cuts through the center.
+    const poleX = width - buildingWidth + 8;
+    box("#8da99a", poleX, base - 37, -110, 3, 102, 3);
+    sign("CANAL ST", "", poleX + 9, base - 81, 47, 12, "#789d88", "#f7efd9", -101);
+    const hydrant = model.group(layers.foreground, 19 - width / 2, height / 2 - walk - 17, -56);
+    model.part(hydrant, "tube", "#c98167", 0, 13, 0, 6, 26, 6);
+    model.part(hydrant, "ball", "#e3a37e", 0, 27, 0, 8, 5, 8);
+    model.rod(hydrant, [-11, 16, 0], [11, 16, 0], 4, "#bf795f");
+    model.part(hydrant, "tube", "#ad806c", 0, 1, 0, 9, 3, 9);
+    for (const side of [0, 1]) {
+      const px = side ? width - 18 : 15, py = base + 9;
+      const planter = model.group(layers.midground, px - width / 2, height / 2 - py, -104);
+      model.part(planter, "box", "#bdac8b", 0, 9, 0, 25, 18, 18);
+      model.part(planter, "box", "#d4c6a1", 0, 18, 0, 29, 4, 21);
+      for (let n = 0; n < 3; n++) model.part(planter, "ball", ["#799c78", "#93ad82", "#a5ba8b"][n], (n - 1) * 7, 29 + n % 2 * 7, n, 10, 13, 8);
+    }
+    for (const { parent, color, entries } of batches.values()) {
+      const mesh = new T.InstancedMesh(model.geometries.box, material(color), entries.length);
+      parent.add(mesh);
       const transform = new T.Object3D();
-      entries.forEach(([x, y, z, sx, sy, sz], i) => {
-        transform.position.set(x, y, z); transform.scale.set(sx, sy, sz); transform.updateMatrix();
+      entries.forEach(([x, y, z, sx, sy, sz, angle], i) => {
+        transform.position.set(x, y, z); transform.scale.set(sx, sy, sz); transform.rotation.z = angle; transform.updateMatrix();
         mesh.setMatrixAt(i, transform.matrix);
       });
       mesh.instanceMatrix.needsUpdate = true;
-      root.add(mesh);
     }
     for (let i = 0; i < 2; i++) {
-      const car = model.group(root, 0, height / 2 - base - 31, -133);
+      const car = model.group(layers.foreground, 0, height / 2 - base - 31, -133);
       const color = i ? "#8cb3ac" : "#e2ba5e";
-      model.part(car, "box", color, 0, 6, 0, 76, 17, 25);
-      model.part(car, "box", color, -2, 21, -1, 42, 20, 22);
-      model.part(car, "box", "#536f7c", -2, 23, 11, 33, 12, 1);
+      roundedPart(car, color, 0, 6, 0, 76, 17, 25);
+      roundedPart(car, color, -2, 21, -1, 42, 20, 22);
+      roundedPart(car, "#6d919a", -2, 23, 11, 33, 12, 1);
+      model.part(car, "box", color, -4, 23, 12, 2, 12, 1);
+      model.part(car, "box", "#eedeb5", 0, 3, 13, 66, 2, 1);
       for (const side of [-1, 1]) {
         model.part(car, "ball", "#37474d", side * 23, -3, 12, 8, 8, 4);
         model.part(car, "ball", "#a4aba2", side * 23, -3, 15, 4, 4, 1);
@@ -143,7 +270,7 @@ function createThreeWorld(model, width, height) {
       traffic.push(car);
     }
     for (let i = 0; i < 3; i++) {
-      const person = model.group(root, 0, height / 2 - base - 4, -130);
+      const person = model.group(layers.midground, 0, height / 2 - base - 4, -130);
       person.scale.setScalar(0.66);
       const color = ["#466783", "#538774", "#c38266"][i];
       model.part(person, "capsule", color, 0, 35, 0, 6, 11, 5);
@@ -161,7 +288,7 @@ function createThreeWorld(model, width, height) {
       }
       person.userData.limbs = limbs; walkers.push(person);
     }
-    const cycle = model.group(root, 0, height / 2 - base - 45, -130);
+    const cycle = model.group(layers.foreground, 0, height / 2 - base - 45, -130);
     for (const side of [-1, 1]) model.part(cycle, "ring", "#485d64", side * 17, 0, 0, 11, 11, 3);
     for (const [a, b] of [
       [[-17, 0, 0], [-7, 20, 0]], [[-7, 20, 0], [3, 0, 0]],
@@ -176,16 +303,17 @@ function createThreeWorld(model, width, height) {
     model.rod(pedal, [-6, 23, 1], [-9, 12, 1], 3, "#4f646b");
     model.rod(pedal, [-9, 12, 1], [2, 1, 1], 3, "#4f646b");
     for (let i = 0; i < 3; i++) {
-      const cloud = model.group(root, 0, height / 2 - 98 - i * 34, -570);
-      for (let n = 0; n < 4; n++) model.part(cloud, "ball", "#f1f0e1", (n - 1.5) * 17, n % 2 ? 6 : 0, 0, 18, n % 2 ? 15 : 11, 9);
+      const cloud = model.group(layers.far, 0, height / 2 - height * (0.16 + i * 0.055), -610);
+      for (let n = 0; n < 4; n++) model.part(cloud, "ball", "#fff8e7", (n - 1.5) * 17, n % 2 ? 6 : 0, 0, 18, n % 2 ? 15 : 11, 9);
+      cloud.scale.set(0.85, 0.62, 0.8);
       clouds.push(cloud);
     }
     for (let i = 0; i < 3; i++) {
-      const bird = model.birdModel(); bird.scale.setScalar(0.30); root.add(bird); birds.push(bird);
+      const bird = model.birdModel(); bird.scale.setScalar(0.30); layers.far.add(bird); birds.push(bird);
     }
     for (let i = 0; i < 5; i++) {
       const puff = new T.Mesh(model.geometries.ball, new T.MeshBasicMaterial({ color: "#f3f6ef", transparent: true, opacity: 0.10, depthWrite: false }));
-      disposableMaterials.push(puff.material); root.add(puff); steam.push(puff);
+      disposableMaterials.push(puff.material); layers.foreground.add(puff); steam.push(puff);
     }
     function animate(time) {
       walkers.forEach((person, i) => {
@@ -215,7 +343,7 @@ function createThreeWorld(model, width, height) {
         puff.material.opacity = (1 - life) * 0.10;
       });
     }
-    return { root, animate, dispose };
+    return { root, layers, animate, dispose };
   } catch (error) {
     dispose();
     throw error;

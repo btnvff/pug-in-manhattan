@@ -210,13 +210,14 @@ function installDiagnostics() {
     assert.equal(await page.evaluate(() => points + items.length + durationBones), 0);
     assert.deepEqual(warnings, [], "no console warnings/errors during normal play");
     assert.deepEqual(failures, [], "no broken page resources");
+    const resourcesBeforeLoss = await page.evaluate(() => ({ ...audit.renderer.info.memory }));
     await page.evaluate(() => { audit.disposed = {}; });
     await page.evaluate(() => document.getElementById("scene-3d").getContext("webgl2").getExtension("WEBGL_lose_context").loseContext());
     await page.waitForFunction(() => document.getElementById("game").dataset.view === "2d", null, { polling: 50 });
     assert.equal(await page.evaluate(() => state), "pause", "context loss pauses and falls back");
     const disposed = await page.evaluate(() => audit.disposed);
     assert.equal(disposed.renderer, 1);
-    assert.equal(disposed.BufferGeometry, 9, "shared and sign geometries released");
+    assert.equal(disposed.BufferGeometry, resourcesBeforeLoss.geometries, "shared and environment geometries released");
     assert.ok(disposed.Material > 30 && disposed.Texture >= 3 && disposed.InstancedMesh > 10, "materials, textures and instances released");
     assert.equal(await page.locator("#scene-3d").count(), 0);
     await page.getByRole("button", { name: "Продолжить", exact: true }).click();
@@ -261,7 +262,7 @@ function installDiagnostics() {
     await livePage.goto(url);
     assert.equal(await livePage.locator("#game").getAttribute("data-view"), "2d");
     assert.equal(await livePage.evaluate(() => audit.disposed.renderer), 1);
-    assert.equal(await livePage.evaluate(() => audit.disposed.Texture), 2, "partially built sign textures released");
+    assert.equal(await livePage.evaluate(() => audit.disposed.Texture), 5, "partially built sky, facade and sign textures released");
     await livePage.unroute("**/js/world-3d.js");
     let releaseAudio;
     const audioGate = new Promise((resolve) => { releaseAudio = resolve; });
