@@ -42,60 +42,7 @@ function createModelFactory() {
     return mesh;
   }
   function pugModel() {
-    const root = group();
-    const body = group(root);
-    part(body, "ball", "#bd9466", 0, 39, 0, 34, 33, 25);
-    part(body, "ball", "#e9c895", 0, 38, 19, 27, 30, 15);
-    const tail = group(body, 30, 38, -4);
-    const curl = part(tail, "ring", "#cda775", 7, 5, 0, 12, 12, 12);
-    curl.rotation.y = -0.3;
-    part(tail, "ball", "#e6c593", 12, 4, 4, 5, 5, 5);
-    const paws = [];
-    for (const side of [-1, 1]) {
-      part(body, "ball", "#a8835c", side * 25, 17, -4, 13, 19, 13);
-      const leg = group(body, side * 18, 25, 20);
-      part(leg, "capsule", "#dfb77c", 0, -7, 0, 8, 10, 8);
-      part(leg, "ball", "#edc990", 0, -20, 6, 12, 7, 13);
-      for (let i = -1; i <= 1; i++)
-        part(leg, "ball", "#987851", i * 4, -22, 16, 1, 1.7, 1.2);
-      paws.push(leg);
-    }
-    part(body, "ball", "#d74640", 0, 64, 6, 30, 9, 24);
-    const scarf = part(body, "cone", "#d74640", 28, 53, 8, 10, 25, 4);
-    scarf.rotation.z = 2.65;
-    const head = group(body, 0, 92, 9);
-    part(head, "ball", "#e9c897", 0, 4, 0, 43, 37, 28);
-    part(head, "ball", "#f0d3a4", 0, 16, 13, 35, 22, 20);
-    for (const side of [-1, 1]) {
-      const ear = part(head, "ball", "#403b36", side * 35, 20, 5, 11, 20, 9);
-      ear.rotation.z = side * 0.48;
-      part(head, "ball", "#51483f", side * 37, 13, 11, 9, 12, 6);
-      part(head, "ball", "#c9a579", side * 28, -10, 12, 16, 20, 16);
-    }
-    part(head, "ball", "#514740", 0, -8, 24, 32, 25, 12);
-    const eyes = [];
-    for (const side of [-1, 1]) {
-      part(head, "ball", "#2c2b28", side * 21, 5, 26, 11, 12, 8);
-      const eye = group(head, side * 21, 5, 31);
-      part(eye, "ball", "#694b30", 0, 0, 0, 7.5, 8, 4);
-      part(eye, "ball", "#111b1b", 0, 0, 3, 5, 6, 2);
-      part(eye, "ball", "#fff4d7", -2, 3, 4.9, 1.9, 2, 1);
-      eyes.push(eye);
-      const brow = part(head, "capsule", "#c5a172", side * 16, 17, 24, 2, 5, 2);
-      brow.rotation.z = side * 0.9;
-    }
-    const jaw = group(head, 0, -22, 22);
-    part(jaw, "ball", "#302d2a", 0, -1, 6, 19, 7, 7);
-    part(jaw, "ball", "#9b7e60", 0, -5, 3, 19, 6, 7);
-    for (const side of [-1, 1]) {
-      part(head, "ball", "#8b735b", side * 10, -15, 33, 15, 10, 8);
-      for (let i = 0; i < 3; i++)
-        part(head, "ball", "#3f3931", side * (8 + (i % 2) * 6), -15 - i * 3, 40, 0.9, 0.9, 0.6);
-    }
-    part(head, "ball", "#242b28", 0, -7, 40, 11, 7, 5);
-    part(head, "ball", "#82887a", -2, -4, 44, 4, 1.5, 0.7);
-    root.userData = { body, head, paws, eyes, tail, jaw };
-    return root;
+    return createPugModel();
   }
   function foodModel(type, variant = 0) {
     const root = group();
@@ -196,5 +143,13 @@ function createModelFactory() {
     root.userData.wings = wings;
     return root;
   }
-  return { part, group, rod, material, geometries, pugModel, foodModel, catModel, birdModel };
+  let disposed = false;
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    for (const geometry of Object.values(geometries)) geometry.dispose();
+    for (const surface of materials.values()) surface.dispose();
+    materials.clear();
+  }
+  return { part, group, rod, material, geometries, pugModel, foodModel, catModel, birdModel, dispose };
 }

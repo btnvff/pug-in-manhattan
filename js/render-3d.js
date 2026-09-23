@@ -6,29 +6,57 @@ function createThreeView() {
   const canvas = document.createElement("canvas");
   canvas.id = "scene-3d";
   canvas.setAttribute("aria-hidden", "true");
-  const renderer = new T.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: "low-power" });
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, BALANCE.frame.maxDpr));
-  renderer.outputColorSpace = T.SRGBColorSpace;
-  renderer.toneMapping = T.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.3;
-  const scene = new T.Scene();
-  scene.background = new T.Color("#bce5eb");
-  const camera = new T.OrthographicCamera(-W / 2, W / 2, H / 2, -H / 2, 1, 2400);
-  camera.position.z = 1000;
-  scene.add(new T.HemisphereLight("#fff6e2", "#718895", 2.4));
-  const sun = new T.DirectionalLight("#fff1d4", 3.1);
-  sun.position.set(-250, 500, 650); scene.add(sun);
-  const fill = new T.DirectionalLight("#c5e4f1", 0.7);
-  fill.position.set(300, 100, 300); scene.add(fill);
-  const model = createModelFactory();
-  const hero = model.pugModel(); scene.add(hero);
-  // Soft contact shadow without an expensive shadow map on mobile GPUs.
-  const shadowMaterial = new T.MeshBasicMaterial({ color: "#514f4a", transparent: true, opacity: 0.14, depthWrite: false });
-  const shadow = new T.Mesh(model.geometries.ball, shadowMaterial);
-  shadow.scale.set(50, 7, 1); scene.add(shadow);
+  let renderer, model, hero, scene, camera, world = null, disposed = false;
   const visuals = new Map(), spare = new Map();
-  let world = null, worldWidth = 0, worldHeight = 0;
   let seen = new Set();
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    // Unsubscribe before forceContextLoss: a retired view must not pause a new run.
+    canvas.removeEventListener("webglcontextlost", onContextLost);
+    world?.dispose();
+    hero?.userData.dispose();
+    model?.dispose();
+    visuals.clear(); spare.clear(); seen.clear(); scene?.clear();
+    renderer?.dispose();
+    renderer?.forceContextLoss();
+    canvas.remove();
+  }
+  function onContextLost(event) {
+    event.preventDefault();
+    fallbackToCanvas();
+  }
+  function guarded(action) {
+    return () => {
+      if (disposed) return;
+      try { action(); }
+      catch (error) { fallbackToCanvas(error); }
+    };
+  }
+  // Cover model construction too, not only the final resize/DOM insertion.
+  try {
+    renderer = new T.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: "low-power" });
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, BALANCE.frame.maxDpr));
+    renderer.outputColorSpace = T.SRGBColorSpace;
+    renderer.toneMapping = T.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.3;
+    scene = new T.Scene();
+    scene.background = new T.Color("#bce5eb");
+    camera = new T.OrthographicCamera(-W / 2, W / 2, H / 2, -H / 2, 1, 2400);
+    camera.position.z = 1000;
+    scene.add(new T.HemisphereLight("#fff6e2", "#718895", 2.4));
+    const sun = new T.DirectionalLight("#fff1d4", 3.1);
+    sun.position.set(-250, 500, 650); scene.add(sun);
+    const fill = new T.DirectionalLight("#c5e4f1", 0.7);
+    fill.position.set(300, 100, 300); scene.add(fill);
+    model = createModelFactory();
+    hero = model.pugModel(); scene.add(hero);
+  } catch (error) {
+    dispose();
+    throw error;
+  }
+  const heroSignal = {};
+  let worldWidth = 0, worldHeight = 0;
   function place(object, px, py, z = 0) {
     object.position.set(px - W / 2, H / 2 - py, z);
   }
@@ -68,31 +96,26 @@ function createThreeView() {
     const hy = menuMode ? landscape ? H - 35 : H < 660 ? H - 256 : H * 0.61 : ground();
     const scale = menuMode ? landscape ? 1 : H < 660 ? 0.75 : 1.16 : heroScale();
     place(hero, hx, hy, 20); hero.scale.setScalar(scale);
-    place(shadow, hx, hy + 3, 5); shadow.scale.set(50 * scale, 7 * scale, 1);
-    const parts = hero.userData;
-    const hop = react > 0 ? Math.sin(react / BALANCE.feedback.reaction * Math.PI) * 3 : 0;
-    parts.body.position.y = state === "win" ? (1 - Math.cos(clock * 5)) * 4 : hop + Math.sin(clock * 2.6) * 0.5;
-    parts.body.rotation.z = -lean;
-    parts.head.rotation.y = headTurn * 0.24;
-    parts.head.rotation.x = -lookUp * 0.10;
-    parts.head.rotation.z = -headTurn * 0.13;
-    parts.tail.rotation.z = tailSwing + Math.sin(clock * 4) * 0.07;
-    parts.paws.forEach((paw, i) => {
-      const step = Math.sin(gait + i * Math.PI) * runBlend;
-      paw.position.y = 25 + Math.max(0, step) * 7;
-      paw.rotation.x = step * 0.2;
-    });
-    const blinkPhase = (clock + 1.3) % 4.7;
-    const blink = blinkPhase < 0.24 ? Math.sin(blinkPhase / 0.24 * Math.PI) : 0;
-    parts.eyes.forEach((eye, i) => {
-      eye.position.x = (i ? 21 : -21) + gazeX * 2;
-      eye.position.y = 5 - gazeY * 2;
-      eye.scale.y = Math.max(0.08, 1 - blink);
-    });
-    const chewing = chewTime > 0 && state !== "lose" && !(react > 0 && reaction < 0);
-    const phase = chewing ? 1 - chewTime / BALANCE.feedback.chew : 0;
-    parts.jaw.position.y = -22 - (chewing ? Math.sin(phase * Math.PI) * (3 + Math.cos(phase * Math.PI * 4) ** 2 * 5) : 0);
-    if (state === "lose") parts.head.rotation.z = 0.09;
+    // Read-only presentation signals; collision/input and their smoothing stay unchanged.
+    heroSignal.time = clock;
+    heroSignal.state = state;
+    heroSignal.runBlend = runBlend;
+    heroSignal.gait = gait;
+    // Fade visual lean near the edge without moving the catch/input coordinates.
+    heroSignal.edgeBlend = clamp((Math.min(hx, W - hx) / scale - 50) / 20, 0, 1);
+    heroSignal.lean = lean;
+    heroSignal.headTurn = headTurn;
+    heroSignal.lookUp = lookUp;
+    heroSignal.gazeX = gazeX;
+    heroSignal.gazeY = gazeY;
+    heroSignal.hasTarget = Boolean(gazeTarget);
+    heroSignal.tailSwing = tailSwing;
+    heroSignal.react = react;
+    heroSignal.reaction = reaction;
+    heroSignal.chewTime = chewTime;
+    heroSignal.reactionDuration = BALANCE.feedback.reaction;
+    heroSignal.chewDuration = BALANCE.feedback.chew;
+    animatePugModel(hero, heroSignal);
   }
   function render() {
     seen = new Set();
@@ -178,27 +201,20 @@ function createThreeView() {
     camera.top = H / 2; camera.bottom = -H / 2;
     camera.updateProjectionMatrix();
     if (worldWidth !== W || worldHeight !== H) {
-      if (world) { scene.remove(world.root); world.dispose(); }
+      if (world) { scene.remove(world.root); world.dispose(); world = null; }
       const scale = Math.min(1, H / 700);
       world = createThreeWorld(model, W / scale, H / scale);
       world.root.scale.setScalar(scale);
       worldWidth = W; worldHeight = H; scene.add(world.root);
     }
   }
-  canvas.addEventListener("webglcontextlost", (event) => {
-    event.preventDefault();
-    pause();
-    activeView = null;
-    canvas.remove();
-    renderer.dispose();
-    document.getElementById("game").dataset.view = "2d";
-    renderCanvasScene();
-  });
   try {
+    canvas.addEventListener("webglcontextlost", onContextLost);
     resize();
     cv.parentNode.insertBefore(canvas, cv);
+    return { render: guarded(render), resize: guarded(resize), dispose };
   } catch (error) {
-    renderer.dispose(); canvas.remove(); throw error;
+    dispose();
+    throw error;
   }
-  return { render, resize };
 }

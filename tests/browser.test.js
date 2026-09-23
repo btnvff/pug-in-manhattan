@@ -24,6 +24,7 @@ const root = path.join(__dirname, "..");
     });
     const errors = [];
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+    if (process.env.OFFLINE_BROWSER === "1") require("./browser-offline").installOfflinePages(context, root);
     await context.addInitScript(() => { window.requestAnimationFrame = () => 1; });
     const url = "http://127.0.0.1:" + server.address().port;
     const page = await context.newPage();
@@ -78,6 +79,7 @@ const root = path.join(__dirname, "..");
     // Compare the exact same seeded inputs with a real WebGL renderer and Canvas.
     async function replay(view) {
       await page.goto(url + "/?view=" + view);
+      assert.equal(await page.locator("#game").getAttribute("data-view"), view, "parity replay uses the requested renderer");
       return page.evaluate(() => {
         let seed = 2026;
         Math.random = () => ((seed = seed * 16807 % 2147483647) - 1) / 2147483646;
