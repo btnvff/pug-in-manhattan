@@ -196,5 +196,10 @@ function createModelFactory() {
     root.userData.wings = wings;
     return root;
   }
-  return { part, group, rod, material, geometries, pugModel, foodModel, catModel, birdModel };
+  function dispose() {
+    Object.values(geometries).forEach((geometry) => geometry.dispose());
+    materials.forEach((mat) => mat.dispose());
+    materials.clear();
+  }
+  return { part, group, rod, material, geometries, pugModel, foodModel, catModel, birdModel, dispose };
 }

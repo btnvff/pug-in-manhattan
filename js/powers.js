@@ -219,7 +219,6 @@ function applyPower(kind) {
     powerTimers.freeze = BALANCE.durations.freeze;
     freezeGrace = BALANCE.durations.freeze + BALANCE.immunity;
   } else if (kind === "jam") {
-    powerTimers.helpers = powerTimers.birds = 0;
     catGifts = [];
     for (const key of usefulPowers) powerTimers[key] = 0;
     cancelEventSpawns();

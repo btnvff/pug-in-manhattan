@@ -145,10 +145,11 @@ function updateCondition() {
     node.setAttribute("aria-label", label);
     conditionCache.label = label;
   }
-  $("rhythm").textContent =
+  const rhythmText =
     rhythmKind === "rush"
       ? "Сосисочный дождь"
       : rhythmKind === "wave"
         ? "Оживлённая улица"
         : "";
+  if ($("rhythm").textContent !== rhythmText) $("rhythm").textContent = rhythmText;
 }

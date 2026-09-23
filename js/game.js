@@ -62,8 +62,6 @@ let W = 390,
   points = 0,
   sausages = 0,
   happy = BALANCE.happiness.start,
-  fat = 15,
-  visualFat = 15,
   elapsed = 0,
   items = [],
   effects = [],
@@ -210,14 +208,14 @@ function soundUI() {
     prefs.sound ? "Выключить звук" : "Включить звук",
   );
 }
-$("sound").onclick = () => {
+function toggleSound() {
   prefs.sound = !prefs.sound;
   unlockAudio();
   syncAudioPreference();
   save();
   soundUI();
   sound("button");
-};
+}
 function hud() {
   $("score").textContent = sausages;
   $("sausages").textContent = points;
@@ -258,6 +256,7 @@ function ui() {
     overlay.innerHTML =
       '<div class="panel"><div class="badge">Сосиски подождут</div><h2>Маленький привал</h2><p>Мопс переводит дух.<br>Город никуда не убежит.</p><button class="cta" id="resume">Продолжить</button><button class="secondary" id="restart">Заново</button><button class="secondary" id="menu">Главное меню</button></div>';
     $("resume").onclick = () => {
+      unlockAudio();
       state = "play";
       ui();
       sound("button");
@@ -299,7 +298,6 @@ function menu() {
   cats = [];
   resetPowers();
   resetRunState();
-  fat = 15;
   x = W / 2;
   resetMotion();
   ui();
@@ -315,7 +313,6 @@ function start() {
   points = 0;
   sausages = 0;
   happy = BALANCE.happiness.start;
-  fat = visualFat = 15;
   elapsed = 0;
   items = [];
   effects = [];
@@ -656,7 +653,6 @@ function tick(dt) {
   }
   if (state !== "pause") {
     animateHero(dt);
-    visualFat = 15;
     effects.forEach((e) => (e.t += dt));
     effects = effects
       .filter((e) => e.t < BALANCE.feedback.life)
@@ -708,11 +704,18 @@ window.addEventListener("keyup", (e) =>
   keys.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key),
 );
 function resize() {
+  const width = cv.clientWidth,
+    height = cv.clientHeight,
+    dpr = Math.min(devicePixelRatio || 1, BALANCE.frame.maxDpr);
+  // Ignore transient zero-sized layouts and events that do not change the canvas.
+  if (!width || !height) return;
+  if (W === width && H === height &&
+      cv.width === Math.round(width * dpr) &&
+      cv.height === Math.round(height * dpr)) return;
   const oldW = W,
     oldH = H;
-  W = cv.clientWidth;
-  H = cv.clientHeight;
-  const dpr = Math.min(devicePixelRatio || 1, BALANCE.frame.maxDpr);
+  W = width;
+  H = height;
   cv.width = Math.round(W * dpr);
   cv.height = Math.round(H * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -721,6 +724,7 @@ function resize() {
     it.x *= W / oldW;
     it.y = (it.y / oldH) * H;
     it.speed *= H / oldH;
+    if (it.bounceV !== undefined) it.bounceV *= H / oldH;
   });
   cats.forEach((c) => (c.x *= W / oldW));
   flocks.forEach((f) => (f.x *= W / oldW));
@@ -728,8 +732,12 @@ function resize() {
     g.sx *= W / oldW;
     g.sy *= H / oldH;
   });
+  effects.forEach((effect) => {
+    effect.x *= W / oldW;
+    effect.y *= H / oldH;
+  });
   clearInput();
   resetMotion();
   invalidateScenery();
-  if (activeView) activeView.resize();
+  resizeView();
 }

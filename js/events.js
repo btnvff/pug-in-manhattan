@@ -121,7 +121,6 @@ function tryEventFood(wantedX, extra = {}) {
       spin: rand(-0.5, 0.5),
       angle: 0,
       used: false,
-      eventFood: true,
       ...extra,
     });
     return true;

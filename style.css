@@ -90,51 +90,6 @@ canvas {
   letter-spacing: 1px;
   color: #856246;
 }
-.bar {
-  height: 5px;
-  background: #ddcfb2;
-  border-radius: 9px;
-  margin-top: 5px;
-  overflow: hidden;
-}
-.bar i {
-  display: block;
-  height: 100%;
-  width: 0;
-  background: #d97b42;
-  border-radius: 9px;
-  transition: width 0.2s;
-}
-#happy {
-  position: absolute;
-  top: max(87px, calc(env(safe-area-inset-top) + 73px));
-  left: 17px;
-  right: 75px;
-  display: none;
-  font: 700 12px Arial;
-  color: #4d4935;
-  text-shadow: 0 1px #fff9;
-}
-.happyline {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.happyline .bar {
-  flex: 1;
-  margin: 0;
-  height: 7px;
-  background: #fff0d9;
-}
-.happyline i {
-  background: #3a8980;
-}
-.low {
-  color: #a23231 !important;
-}
-.low .bar i {
-  background: #c54336;
-}
 .pause {
   width: 44px;
   height: 54px;
@@ -407,26 +362,11 @@ canvas {
   border-color: #a5273b;
   box-shadow: 0 4px 0 #a5273b;
 }
-.bar i {
-  background: #ed7041;
-}
-#happy {
-  background: #f7fbff;
-  padding: 7px 10px;
-  border-radius: 12px;
-  color: #294759;
-  top: max(104px, calc(env(safe-area-inset-top) + 92px));
-}
 #hint {
   color: #fff;
   text-shadow:
     0 1px 3px #18354f,
     0 0 6px #18354f;
-}
-#levelprogress {
-  font: 10px/1.5 Arial;
-  white-space: nowrap;
-  color: #365169;
 }
 .stat {
   min-width: 0;

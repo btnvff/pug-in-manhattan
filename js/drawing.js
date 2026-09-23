@@ -1,5 +1,5 @@
 // The artwork is drawn in layers, with independent face, cheeks, belly and paws.
-const C = { ink: "#533c30", cream: "#f4d9a0", dark: "#51413a" };
+const C = { ink: "#533c30" };
 function ellipse(x, y, rx, ry, fill, stroke = C.ink, lw = 2) {
   ctx.beginPath();
   ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);

@@ -45,7 +45,8 @@ function loadGame(ref, seed = 42) {
     if (!ref) for (const listener of resizeListeners) listener();
   }
   const run = (code) => vm.runInContext(code, sandbox);
-  const snapshot = () => run(`JSON.stringify({state, points, sausages, happy, elapsed, x, difficulty, runProgress, streak, bestStreak, nearMisses, durationBones, powerTimers, items, cats, flocks, catGifts, rhythmKind, rhythmNext, rainEmitted, trailEmitted})`);
+  // The old eventFood marker never affected gameplay and is absent after cleanup.
+  const snapshot = () => run(`JSON.stringify({state, points, sausages, happy, elapsed, x, difficulty, runProgress, streak, bestStreak, nearMisses, durationBones, powerTimers, items, cats, flocks, catGifts, rhythmKind, rhythmNext, rainEmitted, trailEmitted}, (key, value) => key === "eventFood" ? undefined : value)`);
   return { run, snapshot, seed: () => seed };
 }
 function mechanics(game) {
