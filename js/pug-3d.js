@@ -18,19 +18,20 @@ function createPugModel() {
   function material(color, roughness = 0.88, vertexColors = false) {
     return keep(new T.MeshStandardMaterial({ color, roughness, metalness: 0, vertexColors }));
   }
-  const fur = material("#c79b70");
+  const fur = material("#d5ac7f");
   const chinMaterial = material("#4d3833");
   const muzzleMaterial = material("#4f3931");
   const foldMaterial = material("#b4875f");
   const earMaterial = material("#ffffff", 0.96, true);
   const lipMaterial = material("#261d1f");
-  const eyeMaterial = material("#30221f", 0.58);
-  const pupilMaterial = material("#211b1d", 0.58);
+  const eyeMaterial = material("#483527", 0.32);
+  const irisMaterial = material("#946638", 0.3);
+  const pupilMaterial = material("#17191d", 0.22);
   const noseMaterial = material("#2a2226", 0.61);
   const glintMaterial = keep(new T.MeshBasicMaterial({ color: "#fff3df", toneMapped: false }));
   const softGlintMaterial = material("#aa9187", 0.45);
   const scarfMaterial = material("#c44d45", 0.96);
-  const tongueMaterial = material("#cf797c", 0.82);
+  const tongueMaterial = material("#e89498", 0.65);
   const ball = keep(new T.SphereGeometry(1, 24, 18));
   function mesh(parent, name, geometry, surface, x, y, z, sx = 1, sy = 1, sz = 1) {
     const node = new T.Mesh(geometry, surface);
@@ -45,18 +46,19 @@ function createPugModel() {
     const geometry = keep(new T.SphereGeometry(1, 48, 32));
     const position = geometry.attributes.position;
     const colors = new Float32Array(position.count * 3);
-    const light = new T.Color("#e1b788"), shade = new T.Color("#aa7c57");
+    const light = new T.Color("#e2bc91"), shade = new T.Color("#c4986d");
     const mask = new T.Color("#493631"), color = new T.Color();
     for (let i = 0; i < position.count; i++) {
       let px = position.getX(i), py = position.getY(i), pz = position.getZ(i);
       if (kind === "head") {
-        const round = (v) => Math.sign(v) * Math.pow(Math.abs(v), 0.91);
+        const round = (v) => Math.sign(v) * Math.pow(Math.abs(v), 0.98);
         px = round(px); py = round(py); pz = round(pz);
         // Broad cheeks, but no separate hanging jowls.
         px *= 1 + 0.035 * Math.exp(-(((py + 0.32) / 0.42) ** 2));
       } else {
-        px *= 0.9 - py * 0.08;
-        pz *= 0.96 - py * 0.05;
+        // Pear-shaped torso with a broad chest and integrated rounded hips.
+        px *= 0.93 - py * 0.08 + .08 * Math.exp(-(((py + .48) / .32) ** 2));
+        pz *= 0.98 - py * 0.035;
       }
       position.setXYZ(i, px, py, pz);
       color.copy(shade).lerp(light, 0.40 + 0.42 * smooth(-1, 1, py) + 0.16 * Math.max(0, pz));
@@ -112,16 +114,80 @@ function createPugModel() {
       bevelSize: bevel, bevelThickness: bevel, curveSegments: 12,
     }));
   }
+  // Smooth-union skin for chest, shoulders and hips. A single indexed surface
+  // avoids the intersecting ellipsoid seams of the original torso assembly.
+  function bodyGeometry() {
+    const volumes = [[0, 40, -1, 29, 34, 24], [0, 62, -2, 26, 13, 21], [-21, 21, -5, 12, 19, 15], [21, 21, -5, 12, 19, 15]];
+    function field(x, y, z) {
+      let d = 1000;
+      for (const [cx, cy, cz, rx, ry, rz] of volumes) {
+        const e = (Math.hypot((x - cx) / rx, (y - cy) / ry, (z - cz) / rz) - 1) * Math.min(rx, ry, rz);
+        const blend = Math.max(0, 1 - Math.abs(d - e) / 5);
+        d = Math.min(d, e) - blend * blend * 1.25;
+      }
+      return d;
+    }
+    const vertices = [], normals = [], colors = [], indices = [], lookup = new Map();
+    const light = new T.Color("#dfb88c"), shade = new T.Color("#c4986d"), color = new T.Color();
+    function vertex(point) {
+      const [x, y, z] = point, key = point.map((v) => v.toFixed(4)).join(",");
+      if (lookup.has(key)) return lookup.get(key);
+      const index = vertices.length / 3; lookup.set(key, index);
+      vertices.push(x / 33, (y - 40) / 35, (z + 1) / 26);
+      const normal = new T.Vector3((field(x + .05, y, z) - field(x - .05, y, z)) * 33,
+        (field(x, y + .05, z) - field(x, y - .05, z)) * 35, (field(x, y, z + .05) - field(x, y, z - .05)) * 26).normalize();
+      normals.push(normal.x, normal.y, normal.z);
+      color.copy(shade).lerp(light, .35 + smooth(5, 72, y) * .35 + smooth(-8, 23, z) * .2);
+      colors.push(color.r, color.g, color.b); return index;
+    }
+    const tetrahedra = [[0, 5, 1, 6], [0, 1, 2, 6], [0, 2, 3, 6], [0, 3, 7, 6], [0, 7, 4, 6], [0, 4, 5, 6]];
+    const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]];
+    function triangle(a, b, c) {
+      const ab = new T.Vector3(...b).sub(new T.Vector3(...a)), ac = new T.Vector3(...c).sub(new T.Vector3(...a));
+      const n = ab.cross(ac), center = a.map((v, i) => (v + b[i] + c[i]) / 3);
+      const outward = field(center[0] + n.x * .001, center[1] + n.y * .001, center[2] + n.z * .001) > field(...center);
+      indices.push(vertex(a), vertex(outward ? b : c), vertex(outward ? c : b));
+    }
+    for (let x = -39; x < 39; x += 3) for (let y = -3; y < 81; y += 3) for (let z = -30; z < 33; z += 3) {
+      const points = corners.map(([dx, dy, dz]) => [x + dx * 3, y + dy * 3, z + dz * 3]);
+      const values = points.map((p) => field(...p));
+      if (values.every((d) => d >= 0) || values.every((d) => d < 0)) continue;
+      const edge = (a, b) => points[a].map((v, i) => v + (points[b][i] - v) * values[a] / (values[a] - values[b]));
+      for (const tet of tetrahedra) {
+        const inside = tet.filter((i) => values[i] < 0), outside = tet.filter((i) => values[i] >= 0);
+        if (inside.length === 1) triangle(...outside.map((i) => edge(inside[0], i)));
+        if (inside.length === 3) triangle(...inside.map((i) => edge(outside[0], i)));
+        if (inside.length === 2) {
+          const a = edge(inside[0], outside[0]), b = edge(inside[0], outside[1]), c = edge(inside[1], outside[0]), d = edge(inside[1], outside[1]);
+          triangle(a, b, c); triangle(b, d, c);
+        }
+      }
+    }
+    const geometry = keep(new T.BufferGeometry());
+    geometry.setAttribute("position", new T.Float32BufferAttribute(vertices, 3));
+    geometry.setAttribute("normal", new T.Float32BufferAttribute(normals, 3));
+    geometry.setAttribute("color", new T.Float32BufferAttribute(colors, 3)); geometry.setIndex(indices);
+    return geometry;
+  }
   const body = group(root, "body");
-  const torso = mesh(body, "continuous-coat", coatGeometry("body"), material("#ffffff", 0.94, true), 0, 40, -1, 33, 35, 26);
+  const torso = mesh(body, "continuous-coat", bodyGeometry(), material("#ffffff", 0.94, true), 0, 40, -1, 33, 35, 26);
   const hindPaws = [], paws = [], ears = [], eyes = [], lids = [], brows = [], smiles = [];
   for (const side of [-1, 1]) {
-    oval(body, "haunch", fur, side * 23, 20, -4, 13, 19, 15);
     const hind = group(body, "hind-paw", side * 27, 5.3, 8);
     oval(hind, "hind-toes", fur, 0, 0, 0, 10, 5.3, 13);
     hindPaws.push(hind);
     const paw = group(body, "foreleg", side * 16.5, 27, 19);
-    oval(paw, "soft-tapered-leg", fur, 0, -10, 0, 7.3, 17, 8);
+    // A continuous shoulder-to-ankle profile, buried in the chest at the upper end.
+    // The foot overlaps the rounded lower profile; no exposed cylinder or ball joint.
+    const legGeometry = keep(new T.SphereGeometry(1, 28, 22));
+    const legPosition = legGeometry.attributes.position;
+    for (let i = 0; i < legPosition.count; i++) {
+      const y = legPosition.getY(i), t = (y + 1) / 2;
+      legPosition.setXYZ(i, legPosition.getX(i) * (7.1 + smooth(.38, .9, t) * 4.6),
+        -4 + y * 23, legPosition.getZ(i) * (8 + smooth(.4, .95, t) * 4) - smooth(.3, 1, t) * 7);
+    }
+    legGeometry.computeVertexNormals();
+    mesh(paw, "soft-tapered-leg", legGeometry, fur, 0, 0, 0);
     oval(paw, "rounded-paw", fur, 0, -21, 5, 10, 6, 12);
     for (const offset of [-2.7, 2.7])
       oval(paw, "toe-crease", foldMaterial, offset, -22.6, 16.15, 0.45, 1.1, 0.35);
@@ -130,9 +196,7 @@ function createPugModel() {
   const tail = group(body, "curled-tail", 24, 32, -9);
   stroke(tail, "tapered-curl", [[0, 0, 0], [10, 3, 0], [15, 12, 1], [10, 20, 3], [0, 19, 5], [-3, 12, 7], [3, 9, 8], [7, 13, 8]], 4.4, fur, true);
   oval(tail, "rounded-tail-tip", fur, 7, 13, 8, 1.24, 1.24, 1.24);
-  // A broad shoulder ruff joins the existing head to the lifted compact torso.
-  // Keep the head pivot/catch alignment; no narrow visible neck column.
-  oval(body, "shoulder-ruff", fur, 0, 65, -2, 27, 10, 19);
+  // Shoulders are part of the continuous coat above; only the cloth sits on top.
   oval(body, "bandana-collar", scarfMaterial, 0, 62, 1, 25, 2.8, 18);
   const cloth = group(body, "bandana-tip", 0, 62, 26);
   const bib = new T.Shape();
@@ -140,6 +204,9 @@ function createPugModel() {
   bib.quadraticCurveTo(7, -6, 1, -13); bib.quadraticCurveTo(0, -14, -1, -13);
   bib.quadraticCurveTo(-7, -6, -12, 0);
   mesh(cloth, "soft-bandana", softShape(bib, 1, 1), scarfMaterial, 0, 0, 0);
+  const badge = material("#f7e6c8");
+  oval(cloth, "paw-badge", badge, 0, -6, 2.4, 2.1, 1.8, .3);
+  for (const [x, y] of [[-2.4, -3.8], [0, -2.8], [2.4, -3.8]]) oval(cloth, "badge-toe", badge, x, y, 2.4, .8, 1, .25);
   oval(body, "bandana-knot", scarfMaterial, 20, 61, 9, 4.3, 3.6, 4);
 
   const head = group(body, "head", 0, 92, 6);
@@ -174,18 +241,19 @@ function createPugModel() {
   }
   for (const side of [-1, 1]) {
     const eye = group(head, "eye-opening", side * 18.5, 6, 25);
-    eye.scale.set(0.9, 0.9, 1);
-    eye.userData.openHeight = 0.9;
+    eye.scale.set(0.84, 0.84, 1);
+    eye.userData.openHeight = 0.84;
     oval(eye, "soft-eye-rim", chinMaterial, 0, 0, 0, 9.35, 10.05, 1.5);
     oval(eye, "inset-eye", eyeMaterial, 0, 0, 1.35, 9.1, 9.8, 2.25);
-    const gaze = group(eye, "gaze", 0, -0.25, 3.0);
-    oval(gaze, "pupil", pupilMaterial, 0, 0.3, 0.65, 7.8, 8.3, 0.6);
-    oval(gaze, "key-catchlight", glintMaterial, -2.4, 3.25, 1.4, 1.35, 1.6, 0.25);
-    oval(gaze, "fill-catchlight", softGlintMaterial, 2.9, -2.7, 1.0, 0.55, 0.65, 0.15);
+    const gaze = group(eye, "gaze", 0, -0.25, 3.3);
+    oval(gaze, "warm-iris", irisMaterial, 0, .3, .35, 7.15, 7.9, .8);
+    oval(gaze, "pupil", pupilMaterial, 0, 0.5, 1, 5.25, 6.1, 0.65);
+    oval(gaze, "key-catchlight", glintMaterial, -2.0, 3.5, 1.7, 1.35, 1.55, 0.25);
+    oval(gaze, "fill-catchlight", glintMaterial, 2.2, -2.4, 1.65, 0.65, 0.8, 0.15);
     eye.userData.gaze = gaze;
     eyes.push(eye);
     const lid = group(head, "closed-lid", side * 18.5, 6, 29.0);
-    lid.scale.set(0.9, 0.9, 1);
+    lid.scale.set(0.84, 0.84, 1);
     stroke(lid, "lid-arc", [[-7, 0, 0], [-3, -1.2, 0.3], [3, -1.2, 0.3], [7, 0, 0]], 0.7, lipMaterial);
     lid.visible = false; lids.push(lid);
     const brow = group(head, "soft-brow", side * 18, 17.6, 23.3);
@@ -219,7 +287,7 @@ function createPugModel() {
   noseGeometry.computeVertexNormals();
   mesh(head, "soft-triangle-nose", noseGeometry, noseMaterial, 0, 0.3, 35.4, 9.6, 5.2, 3.2);
   oval(head, "nose-highlight", softGlintMaterial, -1.5, 2.5, 38.0, 2.0, 0.65, 0.3);
-  const tongue = oval(head, "tiny-tongue", tongueMaterial, 0, -14, 35, 3.2, 2.4, 0.65);
+  const tongue = oval(head, "tiny-tongue", tongueMaterial, 1.6, -16, 36, 3.8, 4.5, 1.2);
   tongue.visible = false;
   const mouthAnchor = group(head, "mouth-anchor", 0, -12, 36);
 
@@ -237,7 +305,7 @@ function createPugModel() {
   softTexture.needsUpdate = true;
   const plane = keep(new T.PlaneGeometry(1, 1));
   const shadowMaterial = keep(new T.MeshBasicMaterial({
-    color: "#46332d", map: softTexture, transparent: true, opacity: 0.24,
+    color: "#283236", map: softTexture, transparent: true, opacity: 0.32,
     depthWrite: false, toneMapped: false,
   }));
   const shadow = mesh(root, "soft-contact-shadow", plane, shadowMaterial, 0, 0, -18, 89, 15, 1);

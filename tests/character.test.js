@@ -54,7 +54,28 @@ assert.ok(eye.scale.z < 8, "eye depth is less than the old protruding sphere");
 assert.equal(parts.paws.length + parts.hindPaws.length, 4);
 assert.equal(hero.getObjectByName("rounded-head").material.vertexColors, true, "mask belongs to the head surface");
 assert.ok(hero.getObjectByName("continuous-muzzle"), "one continuous muzzle");
-assert.ok(hero.getObjectByName("shoulder-ruff"), "broad shoulders replace the separate narrow neck");
+assert.equal(hero.getObjectByName("haunch"), undefined, "hips and shoulders share one continuous body surface");
+assert.ok(parts.torso.geometry.index, "continuous body uses an indexed skin");
+const skin = parts.torso.geometry, skinEdges = new Map(), neighbors = new Map();
+for (let i = 0; i < skin.index.count; i += 3) {
+  const a = skin.index.getX(i), b = skin.index.getX(i + 1), c = skin.index.getX(i + 2);
+  for (const [start, end] of [[a, b], [b, c], [c, a]]) {
+    const key = start < end ? start + ":" + end : end + ":" + start;
+    skinEdges.set(key, (skinEdges.get(key) ?? 0) + 1);
+    if (!neighbors.has(start)) neighbors.set(start, new Set());
+    if (!neighbors.has(end)) neighbors.set(end, new Set());
+    neighbors.get(start).add(end); neighbors.get(end).add(start);
+  }
+}
+assert.ok([...skinEdges.values()].every((uses) => uses === 2), "body skin is watertight, with no open or non-manifold seams");
+const connected = new Set(), pending = [0];
+while (pending.length) {
+  const index = pending.pop();
+  if (connected.has(index)) continue;
+  connected.add(index);
+  for (const next of neighbors.get(index)) if (!connected.has(next)) pending.push(next);
+}
+assert.equal(connected.size, skin.attributes.position.count, "chest, hips and shoulders form one connected surface");
 assert.equal(parts.shadow.material.depthWrite, false);
 assert.equal(parts.shadow.material.map.image.width, 64);
 animate(); hero.updateMatrixWorld(true);
@@ -95,10 +116,10 @@ for (const state of ["menu", "play", "pause", "win", "lose"]) {
     assert.ok(pose.eyeOpen >= 0.035 && pose.eyeOpen <= 1);
     assert.ok(pose.stretch > 0.96 && pose.stretch < 1.04);
     assert.ok(pose.chew >= 0 && pose.chew < 2);
-    assert.ok(Math.abs(pose.headYaw) < 0.23 && Math.abs(pose.headRoll) < 0.16);
+    assert.ok(Math.abs(pose.headYaw) < 0.39 && Math.abs(pose.headRoll) < 0.20, "expressive turns stay inside the rig envelope");
     hero.updateMatrixWorld(true);
     const headBounds = new T.Box3().setFromObject(hero.getObjectByName("rounded-head"));
-    const shoulderBounds = new T.Box3().setFromObject(hero.getObjectByName("shoulder-ruff"));
+    const shoulderBounds = new T.Box3().setFromObject(parts.torso);
     assert.ok(shoulderBounds.max.y - headBounds.min.y > 6, "head and shoulders remain joined through all poses");
     for (const node of meshes) assert.ok(node.matrixWorld.elements.every(Number.isFinite));
     // Exact support of each ellipsoid along the world Y axis (matrix includes its scale).

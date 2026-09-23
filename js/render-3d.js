@@ -39,15 +39,15 @@ function createThreeView() {
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, BALANCE.frame.maxDpr));
     renderer.outputColorSpace = T.SRGBColorSpace;
     renderer.toneMapping = T.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.12;
+    renderer.toneMappingExposure = 1.02;
     scene = new T.Scene();
     scene.background = new T.Color("#72bde2");
     camera = new T.OrthographicCamera(-W / 2, W / 2, H / 2, -H / 2, 1, 2400);
     camera.position.z = 1000;
-    scene.add(new T.HemisphereLight("#f4f8ff", "#536b80", 1.65));
-    const sun = new T.DirectionalLight("#fff2de", 2.5);
+    scene.add(new T.HemisphereLight("#eaf5ff", "#596770", 1.35));
+    const sun = new T.DirectionalLight("#ffe3bd", 2.65);
     sun.position.set(-250, 500, 650); scene.add(sun);
-    const fill = new T.DirectionalLight("#c5e4ff", 0.65);
+    const fill = new T.DirectionalLight("#c5e4ff", 0.8);
     fill.position.set(300, 100, 300); scene.add(fill);
     model = createModelFactory();
     hero = model.pugModel(); scene.add(hero);
@@ -56,6 +56,7 @@ function createThreeView() {
     throw error;
   }
   const heroSignal = {};
+  const catMouth = new T.Vector3();
   let worldWidth = 0, worldHeight = 0;
   function place(object, px, py, z = 0) {
     object.position.set(px - W / 2, H / 2 - py, z);
@@ -78,12 +79,24 @@ function createThreeView() {
     mesh.rotation.set(0.20, Math.sin(clock * 0.7 + variant) * 0.16, -angle);
     return mesh;
   }
-  function catVisual(key, coat, px, py, direction, size, time, running) {
+  function catVisual(key, coat, px, py, direction, size, time, running, pickup = 0, toss = 0) {
     const mesh = visual(key, "cat:" + coat, () => model.catModel(coat));
-    place(mesh, px, py - (running ? Math.abs(Math.sin(time * 16)) * 2 : 0), 15);
+    place(mesh, px, py, 15);
     mesh.scale.set(size * direction, size, size);
-    mesh.rotation.z = running ? Math.sin(time * 16) * 0.025 : 0;
-    mesh.userData.legs.forEach((leg, i) => leg.rotation.z = running ? Math.sin(time*16+i*Math.PI)*.35 : 0);
+    mesh.rotation.z = 0;
+    const rig = mesh.userData, stride = time * 14;
+    rig.spine.position.y = 17 + (running ? Math.sin(stride * 2) * 1.1 : Math.sin(time * 2.4) * .35) - pickup * 2;
+    rig.spine.scale.set(1 + (running ? Math.sin(stride * 2) * .035 : 0), 1 - pickup * .06, 1);
+    rig.head.position.set(18 + pickup * 3, 29 - pickup * 12 + toss * 3, 2);
+    rig.head.rotation.set(-toss * .12, .08 * Math.sin(time * 2), -pickup * .3 + (running ? Math.sin(stride - .4) * .045 : Math.sin(time * 1.8) * .035));
+    rig.tail.rotation.set(Math.sin(time * 3) * .12, Math.sin(time * 3 - .6) * .2, (running ? -.22 : .12) + Math.sin(time * 4 - .8) * .16);
+    rig.legs.forEach((leg, i) => {
+      const phase = stride + [0, Math.PI, Math.PI * .7, Math.PI * 1.7][i];
+      const step = running ? Math.sin(phase) : 0;
+      leg.rotation.z = step * .4 + (i > 1 ? pickup * .15 : -pickup * .08) + (i === 3 ? -toss * .75 : 0);
+      leg.position.y = 15 + Math.max(0, step) * 2 - pickup;
+      rig.ankles[i].rotation.z = -Math.max(0, step) * .45;
+    });
     return mesh;
   }
   function birdVisual(key, px, py, direction, size, time, flying = true) {
@@ -144,8 +157,11 @@ function createThreeView() {
         const arriving = cat.t < t.leave;
         const px = arriving ? edge + (target - edge) * easeInOut((cat.t - t.wait) / t.travel) : target + (edge - target) * easeInOut((cat.t - t.leave) / t.travel);
         const direction = arriving ? inward : cat.side;
-        catVisual(cat, cat.coat, px, landingY() + 12, direction, 1.1, cat.t, (cat.t > t.wait && cat.t < t.arrival) || cat.t > t.leave);
-        foodVisual(catFoodKey(cat), 0, cat.variant, cat.t < t.pickup ? cat.x : px + direction * 28, cat.t < t.pickup ? landingY() : landingY() - 10, 0.2, cat.t < t.pickup ? 1 : 0.45);
+        const pickup = Math.sin(clamp((cat.t - t.arrival) / (t.leave - t.arrival), 0, 1) * Math.PI);
+        const mesh = catVisual(cat, cat.coat, px, landingY() + 12, direction, 1.1, cat.t, (cat.t > t.wait && cat.t < t.arrival) || cat.t > t.leave, pickup);
+        mesh.userData.mouthAnchor.getWorldPosition(catMouth);
+        foodVisual(catFoodKey(cat), 0, cat.variant, cat.t < t.pickup ? cat.x : catMouth.x + W / 2,
+          cat.t < t.pickup ? landingY() : H / 2 - catMouth.y, cat.t < t.pickup ? .2 : .7, cat.t < t.pickup ? 1 : 0.45);
       }
       for (const flock of flocks) {
         const t = flock.t, departure = 1.85;
@@ -163,8 +179,8 @@ function createThreeView() {
       }
       if (powerTimers.helpers > 0) for (const side of [-1, 1]) {
         const pose = helperPresentation(side);
-        const cat = catVisual("helper:" + side, side < 0 ? 0 : 1, pose.x, ground(), pose.direction, 1.2, catAge, pose.running);
-        if (!pose.running) cat.userData.legs[3].rotation.z = -.6 * Math.max(0, Math.sin((catAge-BALANCE.helpers.first)/BALANCE.helpers.catsInterval*Math.PI*2));
+        const toss = pose.running ? 0 : Math.max(0, Math.sin((catAge - BALANCE.helpers.first) / BALANCE.helpers.catsInterval * Math.PI * 2));
+        catVisual("helper:" + side, side < 0 ? 0 : 1, pose.x, ground(), pose.direction, 1.2, catAge, pose.running, 0, toss);
       }
       if (powerTimers.birds > 0) for (let n = 0; n < 3; n++) {
         const p = birdPosition(n);
