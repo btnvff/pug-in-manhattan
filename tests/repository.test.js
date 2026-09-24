@@ -90,6 +90,13 @@ function walk(folder) {
       assert.deepEqual(Buffer.from(await response.arrayBuffer()),fs.readFileSync(path.join(root,file || "index.html")));
       if (file.endsWith(".js")) assert.match(response.headers.get("content-type"),/javascript/);
     }
+    for (const query of ["?ratio=blockout", "?ratio=reference", "?ratio=diagnostics"]) {
+      const diagnosticURL = new URL(query, url);
+      assert.equal(diagnosticURL.pathname, "/pug-in-manhattan/");
+      const response = await fetch(diagnosticURL);
+      assert.equal(response.status, 200, query + ": diagnostic entry retains the deployment prefix");
+      assert.equal(await response.text(), html);
+    }
     assert.equal((await fetch(url + "missing-file.js")).status,404);
     assert.equal((await fetch(url + "../index.html")).status,404,"Pages prefix is isolated");
   } finally {

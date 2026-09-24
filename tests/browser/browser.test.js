@@ -223,8 +223,10 @@ async function checkRevision(page) {
         return kind.startsWith("webgl") ? null : original.call(this, kind, ...args);
       };
     });
-    for (const query of ["", "/?ratio=blockout", "/?ratio=reference"]) {
-      await blocked.goto(url + query);
+    for (const query of ["", "?ratio=blockout", "?ratio=reference"]) {
+      const diagnosticURL = new URL(query, url);
+      assert.equal(diagnosticURL.pathname, new URL(url).pathname, "diagnostics preserve the Pages base path even in offline tests");
+      await blocked.goto(diagnosticURL.href);
       assert.equal(await blocked.locator("#game").getAttribute("data-view"), "unavailable");
       assert.ok(await blocked.getByRole("alert").isVisible(), "error remains visible even in diagnostic mode");
       assert.equal(await blocked.locator("#scene-3d, #start").count(), 0);
