@@ -679,8 +679,8 @@ cv.addEventListener("pointerdown", (e) => {
   if (state !== "play" || drag !== null) return;
   if (audioSystem.context?.state !== "running") unlockAudio();
   let r = cv.getBoundingClientRect(),
-    px = e.clientX - r.left,
-    py = e.clientY - r.top;
+    px = (e.clientX - r.left) / r.width * W,
+    py = RatioPresentation.logicalY((e.clientY - r.top) / r.height * PUG_WORLD_RATIO.reference_height);
   if (py < ground() - 145) return;
   drag = e.pointerId;
   offset = px - x;
@@ -692,12 +692,12 @@ cv.addEventListener("pointermove", (e) => {
   if (e.pointerId !== drag || state !== "play") return;
   let r = cv.getBoundingClientRect();
   if (movementBlocked()) {
-    offset = e.clientX - r.left - x;
+    offset = (e.clientX - r.left) / r.width * W - x;
     pointerTarget = x;
     e.preventDefault();
     return;
   }
-  pointerTarget = clamp(e.clientX - r.left - offset, margin(), W - margin());
+  pointerTarget = clamp((e.clientX - r.left) / r.width * W - offset, margin(), W - margin());
   e.preventDefault();
 });
 ["pointerup", "pointercancel", "lostpointercapture"].forEach((ev) =>
@@ -722,30 +722,17 @@ window.addEventListener("keyup", (e) =>
   keys.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key),
 );
 function resize() {
-  if (!cv.clientWidth || !cv.clientHeight) return;
-  const oldW = W,
-    oldH = H;
-  W = cv.clientWidth;
-  H = cv.clientHeight;
-  const dpr = Math.min(devicePixelRatio || 1, BALANCE.frame.maxDpr);
-  cv.width = Math.round(W * dpr);
-  cv.height = Math.round(H * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  x = clamp((x / oldW) * W, margin(), W - margin());
-  items.forEach((it) => {
-    it.x *= W / oldW;
-    it.y = (it.y / oldH) * H;
-    it.speed *= H / oldH;
-  });
-  cats.forEach((c) => (c.x *= W / oldW));
-  flocks.forEach((f) => (f.x *= W / oldW));
-  catGifts.forEach((g) => {
-    g.sx *= W / oldW;
-    g.sy *= H / oldH;
-  });
-  resizeStreetEvents(W / oldW, H / oldH);
-  clearInput();
-  resetMotion();
-  invalidateScenery();
-  if (activeView) activeView.resize();
+  // A viewport change only changes raster resolution and CSS fit, never the run.
+  const pad=getComputedStyle(document.body);
+  const availableW=innerWidth-parseFloat(pad.paddingLeft)-parseFloat(pad.paddingRight);
+  const availableH=innerHeight-parseFloat(pad.paddingTop)-parseFloat(pad.paddingBottom);
+  const fit=WorldRatio.fit(availableW,availableH),game=$('game');
+  game.style.setProperty('--ratio-fit',fit.width/390);
+  game.style.left=(parseFloat(pad.paddingLeft)+availableW/2)+'px';
+  game.style.top=(parseFloat(pad.paddingTop)+availableH/2)+'px';
+  const dpr=Math.min(devicePixelRatio||1,BALANCE.frame.maxDpr);
+  cv.width=Math.round(fit.width*dpr);cv.height=Math.round(fit.height*dpr);
+  ratioRaster=cv.width/PUG_WORLD_RATIO.reference_width;
+  beginRatioFeedback();
+  if(activeView)activeView.resize();
 }

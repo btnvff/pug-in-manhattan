@@ -1,18 +1,13 @@
 // Original Canvas renderer. Gameplay state is read-only here.
 function renderCanvasScene() {
-  ctx.clearRect(0, 0, W, H);
-  city(worldTime);
-  // Neutral translucent mist reduces background chroma without filtering foreground.
-  ctx.save();
-  ctx.fillStyle = "rgba(202,224,238,.12)";
-  ctx.fillRect(0, 0, W, H);
-  ctx.restore();
+  clearRatioCanvas();
+  drawRatioWorldCanvas();
   if (state === "menu") {
     let landscape = W > 550;
     pug(
-      W / 2,
+      ratioMode === "reference" || ratioMode === "blockout" ? W * .44 : x,
       ground(),
-      clock,
+      ratioMode === "reference" ? 0 : clock,
       heroScale(),
     );
     if (!landscape) {
@@ -65,4 +60,5 @@ function renderCanvasScene() {
   }
   drawFloatingFeedback();
   drawVictoryFeedback();
+  drawRatioDiagnostics();
 }

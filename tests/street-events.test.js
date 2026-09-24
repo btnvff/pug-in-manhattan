@@ -27,7 +27,7 @@ assert.ok(Math.abs(run("streetEvents.drops[0].speed - 240*BALANCE.event.slowFact
 run("const oldDropY=streetEvents.drops[0].y/H; cv.clientHeight=568; resize()");
 assert.ok(Math.abs(run("streetEvents.drops[0].y/H-oldDropY")) < 1e-10, "resize preserves position fraction");
 run("cv.clientHeight=0; resize()");
-assert.ok(run("H===568 && Number.isFinite(streetEvents.drops[0].y)"));
+assert.ok(run("H===844 && Number.isFinite(streetEvents.drops[0].y)"));
 run("cv.clientHeight=844; resize(); start(); x=330; points=500");
 const events = [];
 for (let missed = 1; missed <= 90; missed++) {

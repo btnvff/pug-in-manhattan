@@ -20,7 +20,7 @@ function loadGame(ref, seed = 42) {
     },
   });
   const element = () => ({
-    style: {}, dataset: {}, textContent: "", innerHTML: "",
+    style: {setProperty(){}}, dataset: {}, textContent: "", innerHTML: "",
     clientWidth: 390, clientHeight: 844,
     getContext: () => context, setAttribute() {}, addEventListener() {},
     releasePointerCapture() {}, setPointerCapture() {},
@@ -28,7 +28,7 @@ function loadGame(ref, seed = 42) {
   const math = Object.create(Math);
   math.random = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
   const sandbox = {
-    Math: math, console, URLSearchParams, location: { search: "?view=2d" },
+    innerWidth:390,innerHeight:844,getComputedStyle:()=>({paddingLeft:0,paddingRight:0,paddingTop:0,paddingBottom:0}), Math: math, console, URLSearchParams, location: { search: "?view=2d" },
     document: {
       hidden: false, addEventListener() {}, createElement: element,
       getElementById(id) { if (!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); },

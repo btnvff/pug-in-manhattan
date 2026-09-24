@@ -401,7 +401,7 @@ function cyclist(px, py, t) {
 function pug(px, py, t, scale = 1) {
   ctx.save();
   ctx.translate(px, py);
-  ctx.scale(scale, scale);
+  ctx.scale(scale * RatioPresentation.unit / (600 / 390), scale);
   const win = state === "win",
     sad = state === "lose",
     angry = react > 0 && reaction < 0;

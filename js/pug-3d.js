@@ -235,8 +235,8 @@ function createPugModel() {
   }
   earGeometry.setAttribute("color", new T.BufferAttribute(earColors, 3));
   for (const side of [-1, 1]) {
-    const ear = group(head, "button-ear", side * 31, 24, 18);
-    ear.scale.setScalar(0.88);
+    const ear = group(head, "button-ear", side * 29, 24, 18);
+    ear.scale.setScalar(0.84);
     const flap = mesh(ear, "folded-flap", earGeometry, earMaterial, 0, 0, 0);
     flap.scale.x = side;
     ears.push(ear);
