@@ -230,3 +230,9 @@ function drawFood(type, x, y, a = 0, variant = 0) {
   }
   ctx.restore();
 }
+
+// Presentation only: the same orientation for live items and missed drops.
+function foodAngle(item) {
+  return (item.angle ?? 0) + (item.age ?? 0) * (item.spin ?? 0) +
+    Math.sin((item.age ?? 0) * 2 + (item.phase ?? 0)) * 0.22;
+}

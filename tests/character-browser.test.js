@@ -1,24 +1,18 @@
 // Run with externally installed Playwright, like browser.test.js.
-// Loads local source into real DOM/WebGL; HTTP navigation is deliberately not tested here.
+// HTTP by default; OFFLINE_BROWSER=1 opts into local-content loading.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
-const { installOfflinePages } = require("./browser-offline");
-const root = path.join(__dirname, "..");
+const { openBrowser, captureViews } = require("./browser-helpers");
 (async () => {
-  const browser = await chromium.launch({
-    executablePath: process.env.CHROMIUM_PATH || undefined,
-    headless: true, args: ["--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
-  });
+  const session = await openBrowser({ deviceScaleFactor: 2 });
   try {
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
-    installOfflinePages(context, root);
-    await context.addInitScript(() => { window.requestAnimationFrame = () => 1; });
+    const { context, url } = session;
+    await captureViews(context);
     const page = await context.newPage(), errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
-    await page.goto("http://local.test/");
+    await page.goto(url);
     assert.equal(await page.locator("#game").getAttribute("data-view"), "3d");
     await page.evaluate(() => {
       const animate = animatePugModel;
@@ -68,15 +62,16 @@ const root = path.join(__dirname, "..");
           reviewHero.updateMatrixWorld(true);
           const point = new THREE.Vector3();
           let min = Infinity, max = -Infinity;
-          reviewHero.traverse((mesh) => {
+          reviewHero.traverseVisible((mesh) => {
             if (!mesh.isMesh || /shadow|contact|wisp/.test(mesh.name)) return;
             const positions = mesh.geometry.attributes.position;
             for (let i = 0; i < positions.count; i++) {
-              point.fromBufferAttribute(positions, i).applyMatrix4(mesh.matrixWorld);
-              min = Math.min(min, point.x + W / 2); max = Math.max(max, point.x + W / 2);
+              point.fromBufferAttribute(positions, i).applyMatrix4(mesh.matrixWorld).project(testViews.gameplayCamera);
+              const u = (point.x + 1) / 2;
+              min = Math.min(min, u); max = Math.max(max, u);
             }
           });
-          return { min, max, width: W };
+          return { min, max, width: 1 };
         }, side);
         assert.ok(bounds.min >= 0 && bounds.max <= bounds.width, "hero stays inside unchanged screen/input bounds");
         await capture("edge-" + size.width + "-" + side);
@@ -127,5 +122,5 @@ const root = path.join(__dirname, "..");
     }
     assert.deepEqual(errors, [], "no exceptions or WebGL/shader errors");
     console.log("PASS: 9 rendered character states; exact pause including transforms/steam; edge-safe silhouette at 320x568, 390x844 and 844x390; 6 GPU lifecycle cycles with zero retained hero resources; no shader/browser errors.");
-  } finally { await browser.close(); }
+  } finally { await session.close(); }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

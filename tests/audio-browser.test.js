@@ -1,18 +1,15 @@
 // Real WebAudio graphs and offline PCM, with no microphone/audio files or npm build.
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
-const { installOfflinePages } = require("./browser-offline");
+const { openBrowser, captureViews } = require("./browser-helpers");
 (async () => {
-  const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined,
-    headless: true, args: ["--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+  const session = await openBrowser({ isMobile: true, hasTouch: true });
   try {
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
-    installOfflinePages(context, path.join(__dirname, ".."));
-    await context.addInitScript(() => { window.requestAnimationFrame = () => 1; });
+    const { context, url } = session;
+    await captureViews(context);
     const page = await context.newPage(), errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
-    await page.goto("http://local.test/");
+    await page.goto(url);
     assert.equal(await page.evaluate(() => audioSystem.context), null, "no autoplay before a gesture");
     await page.getByRole("button", { name: "Старт", exact: true }).tap();
     await page.waitForFunction(() => audioSystem.context?.state === "running", null, { polling: 50 });
@@ -34,7 +31,8 @@ const { installOfflinePages } = require("./browser-offline");
     assert.equal(await page.evaluate(() => { audioFrame(); return audioSystem.bed.size; }), 2);
     // Browsers can suspend audio independently of the game. A new drag must recover it.
     await page.evaluate(() => audioSystem.context.suspend());
-    await page.locator("#scene").tap({ position: { x: 200, y: 750 } });
+    const bounds = await page.locator("#scene").boundingBox();
+    await page.locator("#scene").tap({ position: { x: bounds.width * .5, y: bounds.height * .9 } });
     await page.waitForFunction(() => audioSystem.context.state === "running", null, { polling: 50 });
     const schedule = await page.evaluate(() => {
       stopAudioVoices(); audioSystem.next = Infinity;
@@ -100,5 +98,5 @@ const { installOfflinePages } = require("./browser-offline");
     assert.equal(await page.evaluate(() => audioSystem.voices.size), 0, "hidden page releases loops and one-shots");
     assert.deepEqual(errors, []);
     console.log("PASS: gesture unlock, suspended-context resume/drag, mute, hidden cleanup, continuous two-layer ambience, six sparse events, deduplication, 9 gameplay SFX, PCM headroom and foreground/background hierarchy.");
-  } finally { await browser.close(); }
+  } finally { await session.close(); }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

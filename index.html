@@ -29,16 +29,16 @@
       <canvas
         id="scene"
         aria-label="Мопс ловит еду на нью-йоркской улице"
-      ></canvas
-      ><button id="sound" aria-label="Выключить звук"></button>
+      ></canvas>
+      <button id="sound" aria-label="Выключить звук"></button>
       <div id="hud">
         <div class="stat primary">
           <div class="label">ОЧКИ</div>
-          <b id="sausages">0</b>
+          <b id="points">0</b>
         </div>
         <div class="stat">
           <div class="label">СОСИСКИ</div>
-          <b id="score">0</b>
+          <b id="sausages">0</b>
         </div>
         <button class="pause" id="pause" aria-label="Пауза">Ⅱ</button>
       </div>
@@ -48,7 +48,7 @@
       <div id="overlay"></div>
       <div id="hint">← ТЯНИ ЗДЕСЬ, ЧТОБЫ ДВИГАТЬ МОПСА →</div>
     </main>
-    <!-- Порядок скриптов важен: balance.js первым, render.js последним. -->
+    <!-- Shared state first; render.js boots only after both renderers are available. -->
     <script defer src="./js/balance.js"></script>
     <script defer src="./js/world-ratio.js"></script>
     <script defer src="./js/game.js"></script>
