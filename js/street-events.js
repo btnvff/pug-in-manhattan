@@ -8,8 +8,10 @@ function resetStreetEvents() {
 }
 function chooseStreetCat(item) {
   if (streetEvents.cooldown > 0 || cats.length || powerTimers.helpers > 0 ||
-      item.x < 30 || item.x > W - 30 || Math.abs(item.x - x) < 75 * heroScale()) return false;
-  if (++streetEvents.eligible < streetEvents.untilCat) return false;
+    item.x < 30 || item.x > W - 30 || Math.abs(item.x - x) < 75 * heroScale())
+    return false;
+  if (++streetEvents.eligible < streetEvents.untilCat)
+    return false;
   streetEvents.eligible = 0;
   streetEvents.untilCat = [10, 15, 11, 14, 13, 12][streetEvents.cycle++ % 6];
   streetEvents.cooldown = 14;
@@ -25,18 +27,13 @@ function stepStreetEvents(dt) {
     if (drop.bounceV !== undefined) {
       drop.bounceV += H * BALANCE.event.bounceGravity * dt;
       drop.y += drop.bounceV * dt;
-    } else drop.y += drop.speed * dt;
+    }
+    else
+      drop.y += drop.speed * dt;
   }
   // Include the entire rotated silhouette before retiring its pooled model.
   streetEvents.drops = streetEvents.drops.filter((drop) => drop.y < H + 80);
 }
-function resizeStreetEvents(sx, sy) {
-  for (const drop of streetEvents.drops) {
-    drop.x *= sx; drop.y *= sy; drop.speed *= sy;
-    if (drop.bounceV !== undefined) drop.bounceV *= sy;
-  }
-}
-
 // Helpers move visually; their original gift cadence and rewards stay unchanged.
 function helperPresentation(side, age = catAge, remaining = powerTimers.helpers) {
   const enter = easeInOut(clamp(age / .65, 0, 1));
@@ -46,7 +43,8 @@ function helperPresentation(side, age = catAge, remaining = powerTimers.helpers)
     direction: leave > 0 ? side : -side, running: enter < 1 || leave > 0 };
 }
 function helperGiftOrigin(gift) {
-  if (gift.owner !== "helpers") return gift;
+  if (gift.owner !== "helpers")
+    return gift;
   const side = gift.sx < W / 2 ? -1 : 1;
   const pose = helperPresentation(side, Math.max(0, catAge - gift.t), powerTimers.helpers + gift.t);
   return { sx: pose.x - side * 27 * 1.2, sy: gift.sy };

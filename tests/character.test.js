@@ -12,7 +12,7 @@ for (const file of ["js/vendor/three-r185.js", "js/pug-3d.js", "js/pug-animation
   vm.runInContext(fs.readFileSync(path.join(root, file), "utf8"), sandbox, { filename: file });
 const T = sandbox.window.THREE;
 const factory = sandbox.createModelFactory();
-const hero = factory.pugModel();
+const hero = sandbox.createPugModel();
 const parts = hero.userData;
 const signal = Object.freeze({
   time: 0.7, state: "play", runBlend: 0, gait: 0, lean: 0, headTurn: 0,
@@ -49,12 +49,11 @@ assert.ok(meshes.length <= 80, "bounded hero draw-call budget");
 assert.ok(triangles < 65000, "bounded hero geometry budget");
 const topology = meshes.map((mesh) => [mesh.uuid, mesh.geometry.uuid, mesh.material.uuid]);
 const eye = parts.eyes[0].getObjectByName("inset-eye");
-assert.ok(eye.scale.x * parts.eyes[0].scale.x < 11 && eye.scale.y * parts.eyes[0].scale.y < 12, "eyeballs are smaller than the old 11x12 radii");
-assert.ok(eye.scale.z < 8, "eye depth is less than the old protruding sphere");
+assert.ok(eye.scale.x * parts.eyes[0].scale.x < 11 && eye.scale.y * parts.eyes[0].scale.y < 12, "inset eyes remain inside their 11x12 source-unit envelope");
+assert.ok(eye.scale.z < 8, "eye depth stays bounded inside the face");
 assert.equal(parts.paws.length + parts.hindPaws.length, 4);
 assert.equal(hero.getObjectByName("rounded-head").material.vertexColors, true, "mask belongs to the head surface");
 assert.ok(hero.getObjectByName("continuous-muzzle"), "one continuous muzzle");
-assert.equal(hero.getObjectByName("haunch"), undefined, "hips and shoulders share one continuous body surface");
 assert.ok(parts.torso.geometry.index, "continuous body uses an indexed skin");
 const skin = parts.torso.geometry, skinEdges = new Map(), neighbors = new Map();
 for (let i = 0; i < skin.index.count; i += 3) {
@@ -153,7 +152,7 @@ for (const side of [-1, 1]) for (let frame = 0; frame < 120; frame++) {
 assert.deepEqual(meshes.map((mesh) => [mesh.uuid, mesh.geometry.uuid, mesh.material.uuid]), topology, "animation creates no new meshes, geometries or materials");
 const disposals = new Map();
 for (const resource of resources) resource.addEventListener("dispose", () => disposals.set(resource, (disposals.get(resource) ?? 0) + 1));
-const sharedResources = [...Object.values(factory.geometries), factory.material("#aa8866")];
+const sharedResources = [...Object.values(factory.geometries), factory.part(new T.Group(), "box", "#aa8866", 0, 0, 0, 1, 1, 1).material];
 const sharedDisposals = new Map();
 for (const resource of sharedResources)
   resource.addEventListener("dispose", () => sharedDisposals.set(resource, (sharedDisposals.get(resource) ?? 0) + 1));

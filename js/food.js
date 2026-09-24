@@ -1,7 +1,7 @@
 function drawFood(type, x, y, a = 0, variant = 0) {
   ctx.save();
   ctx.translate(x, y);
-  ctx.scale(RatioPresentation.unit / (600 / 390), 1);
+  ctx.scale(RatioPresentation.unit / (PUG_WORLD_RATIO.reference_width / PUG_WORLD_RATIO.logical_game.width), 1);
   ctx.rotate(a);
   ctx.shadowColor = "#3f382c28";
   ctx.shadowBlur = 3;
@@ -229,4 +229,10 @@ function drawFood(type, x, y, a = 0, variant = 0) {
       break;
   }
   ctx.restore();
+}
+
+// Presentation only: the same orientation for live items and missed drops.
+function foodAngle(item) {
+  return (item.angle ?? 0) + (item.age ?? 0) * (item.spin ?? 0) +
+    Math.sin((item.age ?? 0) * 2 + (item.phase ?? 0)) * 0.22;
 }

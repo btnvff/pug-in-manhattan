@@ -166,8 +166,7 @@ function collectBone() {
 let catGifts = [],
   helperNext = BALANCE.helpers.first,
   helperShots = 0;
-let flocks = [],
-  goodSpecialReady = BALANCE.introduction.specials,
+let goodSpecialReady = BALANCE.introduction.specials,
   badSpecialReady = BALANCE.introduction.badSpecials,
   goodSpecialDeadline = BALANCE.introduction.specials,
   freezeGrace = 0,
@@ -185,7 +184,6 @@ function resetPowers() {
   goodSpecialReady = goodSpecialDeadline = BALANCE.introduction.specials;
   badSpecialReady = BALANCE.introduction.badSpecials;
   resetEvents();
-  flocks = [];
   powerHUD();
 }
 function powerHUD() {

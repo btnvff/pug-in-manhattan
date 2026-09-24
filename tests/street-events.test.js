@@ -24,11 +24,13 @@ assert.equal(run("items.length"), 1);
 assert.ok(run("items[0].bounceV<0 && streetEvents.drops.length===0 && cats.length===0"), "second-chance bounce still belongs to gameplay");
 run("start(); spawnIn=999; x=330; applyPower('slow'); items=[{type:4,x:65,y:landingY()-.1,speed:240,age:0,used:false}]; tick(1/60)");
 assert.ok(Math.abs(run("streetEvents.drops[0].speed - 240*BALANCE.event.slowFactor")) < 1e-8, "retain slowed velocity through visual handoff");
-run("const oldDropY=streetEvents.drops[0].y/H; cv.clientHeight=568; resize()");
-assert.ok(Math.abs(run("streetEvents.drops[0].y/H-oldDropY")) < 1e-10, "resize preserves position fraction");
-run("cv.clientHeight=0; resize()");
-assert.ok(run("H===844 && Number.isFinite(streetEvents.drops[0].y)"));
-run("cv.clientHeight=844; resize(); start(); x=330; points=500");
+const beforeResize = run("JSON.stringify(streetEvents)");
+for (const [width, height] of [[320,568], [844,390], [390,844]]) {
+  run(`innerWidth=${width}; innerHeight=${height}; resize()`);
+  assert.equal(run("JSON.stringify(streetEvents)"), beforeResize, "resize changes raster, not street state");
+  assert.ok(run("W===390 && H===844"));
+}
+run("start(); x=330; points=500");
 const events = [];
 for (let missed = 1; missed <= 90; missed++) {
   run("cats=[]; streetEvents.cooldown=0; missSausage({type:0,x:65,y:landingY(),variant:0,used:false})");

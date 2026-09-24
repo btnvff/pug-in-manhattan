@@ -1,6 +1,7 @@
 // Renderer selection never changes gameplay, input coordinates or saved progress.
-let activeView = null;
+let activeView = null, needsRender = true;
 function initializeView() {
+  if (activeView) return;
   document.getElementById("game").dataset.view = "2d";
   if (new URLSearchParams(location.search).get("view") === "2d") return;
   try {
@@ -16,17 +17,18 @@ function fallbackToCanvas(error) {
   pause();
   const view = activeView;
   activeView = null;
-  view?.dispose();
+  try { view?.dispose(); }
+  catch (cleanupError) { console.warn("3D cleanup failed; Canvas remains available.", cleanupError); }
   document.getElementById("game").dataset.view = "2d";
   renderCanvasScene();
+  needsRender = true;
 }
 function render() {
   if (activeView) activeView.render();
   else renderCanvasScene();
+  needsRender = false;
 }
-let lastPaintState = "",
-  lastPaintWidth = 0,
-  lastPaintHeight = 0;
+let lastPaintState = "";
 function frame(now) {
   const dt = Math.min((now - last) / 1000 || 0, BALANCE.frame.maxDelta);
   last = now;
@@ -35,13 +37,10 @@ function frame(now) {
     !document.hidden &&
     (state !== "pause" ||
       lastPaintState !== state ||
-      lastPaintWidth !== W ||
-      lastPaintHeight !== H)
+      needsRender)
   ) {
     render();
     lastPaintState = state;
-    lastPaintWidth = W;
-    lastPaintHeight = H;
   }
   audioFrame();
   requestAnimationFrame(frame);

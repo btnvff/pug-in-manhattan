@@ -56,14 +56,11 @@ const save = () => {
     localStorage.setItem("manhattan-pug-progressive", JSON.stringify(prefs));
   } catch {}
 };
-let W = 390,
-  H = 844,
-  state = "menu",
+const { width: W, height: H } = PUG_WORLD_RATIO.logical_game;
+let state = "menu",
   points = 0,
   sausages = 0,
   happy = BALANCE.happiness.start,
-  fat = 15,
-  visualFat = 15,
   elapsed = 0,
   items = [],
   effects = [],
@@ -187,13 +184,13 @@ function animateHero(dt) {
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v)),
   rand = (a, b) => a + Math.random() * (b - a);
 function ground() {
-  return H - (H < 500 ? 60 : 91);
+  return H - 91;
 }
 function catchY() {
   return ground() - 85;
 }
 function heroScale() {
-  return W > 550 ? 0.85 : 1;
+  return 1;
 }
 function margin() {
   return 49 * heroScale();
@@ -219,8 +216,8 @@ $("sound").onclick = () => {
   sound("button");
 };
 function hud() {
-  $("score").textContent = sausages;
-  $("sausages").textContent = points;
+  $("sausages").textContent = sausages;
+  $("points").textContent = points;
   $("hint").textContent =
     happy <= BALANCE.happiness.critical
       ? "ЛОВИ ЕДУ — МОПСУ НУЖНО ВОССТАНОВИТЬСЯ"
@@ -250,7 +247,7 @@ function ui() {
   overlay.innerHTML = "";
   if (state === "menu") {
     overlay.innerHTML =
-      '<header class="sky-heading"><h1 class="title"><div class="eyebrow">АРКАДА С ХАРАКТЕРОМ</div>Мопс <small style="font-size:.55em;font-weight:normal">на</small><span>Манхэттене</span></h1><p class="tagline">Большой город. Маленький мопс.<br>Огромный аппетит.</p></header><div class="menu-card"><button class="cta" id="start">Старт</button><p class="instruction">Тяни мопса пальцем. Лови вкусное. Избегай опасного. Побей рекорд.</p><p class="record">Лучший результат: ' +
+      '<header class="sky-heading"><h1 class="title"><span class="eyebrow">АРКАДА С ХАРАКТЕРОМ</span>Мопс <small style="font-size:.55em;font-weight:normal">на</small><span>Манхэттене</span></h1><p class="tagline">Большой город. Маленький мопс.<br>Огромный аппетит.</p></header><div class="menu-card"><button class="cta" id="start">Старт</button><p class="instruction">Тяни мопса пальцем. Лови вкусное. Избегай опасного. Побей рекорд.</p><p class="record">Лучший результат: ' +
       prefs.best +
       " очков</p></div>";
     $("start").onclick = start;
@@ -301,7 +298,6 @@ function menu() {
   cats = [];
   resetPowers();
   resetRunState();
-  fat = 15;
   x = W / 2;
   resetMotion();
   ui();
@@ -318,7 +314,6 @@ function start() {
   points = 0;
   sausages = 0;
   happy = BALANCE.happiness.start;
-  fat = visualFat = 15;
   elapsed = 0;
   items = [];
   effects = [];
@@ -460,7 +455,7 @@ function missSausage(it) {
   it.used = true;
   const loss = Math.min(BALANCE.missedSausagePenalty, points);
   points -= loss;
-  // Preserve the old coat draw so this visual change cannot alter future spawns.
+  // Each missed sausage consumes one coat draw, even when no street cat appears.
   const coat = Math.floor(Math.random() * 3), streetCat = chooseStreetCat(it);
   if (streetCat) {
     sound("land", (it.x / W) * 2 - 1);
@@ -659,8 +654,6 @@ function tick(dt) {
         sound("cat", (c.x / W) * 2 - 1);
     });
     if (state === "play") stepCatHelpers(dt);
-    flocks.forEach((f) => (f.t += dt));
-    flocks = flocks.filter((f) => f.t < 3.5);
     cats = cats.filter((c) => c.t < catTiming(c).end);
     items = items.filter((it) => !it.used && it.y < H + 40);
     react = Math.max(0, react - dt);
@@ -668,7 +661,6 @@ function tick(dt) {
   }
   if (state !== "pause") {
     animateHero(dt);
-    visualFat = 15;
     effects.forEach((e) => (e.t += dt));
     effects = effects
       .filter((e) => e.t < BALANCE.feedback.life)
@@ -727,12 +719,13 @@ function resize() {
   const availableW=innerWidth-parseFloat(pad.paddingLeft)-parseFloat(pad.paddingRight);
   const availableH=innerHeight-parseFloat(pad.paddingTop)-parseFloat(pad.paddingBottom);
   const fit=WorldRatio.fit(availableW,availableH),game=$('game');
-  game.style.setProperty('--ratio-fit',fit.width/390);
+  game.style.setProperty('--ratio-fit',fit.width/W);
   game.style.left=(parseFloat(pad.paddingLeft)+availableW/2)+'px';
   game.style.top=(parseFloat(pad.paddingTop)+availableH/2)+'px';
   const dpr=Math.min(devicePixelRatio||1,BALANCE.frame.maxDpr);
   cv.width=Math.round(fit.width*dpr);cv.height=Math.round(fit.height*dpr);
   ratioRaster=cv.width/PUG_WORLD_RATIO.reference_width;
+  needsRender = true;
   beginRatioFeedback();
   if(activeView)activeView.resize();
 }

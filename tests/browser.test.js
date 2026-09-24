@@ -3,45 +3,12 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const http = require("node:http");
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
-const root = path.join(__dirname, "..");
+const { openBrowser, captureViews } = require("./browser-helpers");
 (async () => {
-  const server = http.createServer((request, response) => {
-    const pathname = decodeURIComponent(request.url.split("?")[0]);
-    const file = path.resolve(root, "." + (pathname === "/" ? "/index.html" : pathname));
-    if (!file.startsWith(root + path.sep)) { response.writeHead(403).end(); return; }
-    const types = { ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".webmanifest": "application/manifest+json" };
-    try { response.setHeader("Content-Type", types[path.extname(file)] || "text/html"); response.end(fs.readFileSync(file)); }
-    catch { response.writeHead(404).end(); }
-  });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  let browser;
+  const session = await openBrowser({ isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
   try {
-    browser = await chromium.launch({
-      executablePath: process.env.CHROMIUM_PATH || undefined,
-      headless: true, args: ["--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
-    });
-    const errors = [];
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
-    if (process.env.OFFLINE_BROWSER === "1") require("./browser-offline").installOfflinePages(context, root);
-    await context.addInitScript(() => { window.requestAnimationFrame = () => 1; });
-    await context.addInitScript(() => {
-      Object.defineProperty(window, "THREE", { configurable: true, set(T) {
-        Object.defineProperty(window, "THREE", { value: T });
-        const Renderer = T.WebGLRenderer;
-        T.WebGLRenderer = class extends Renderer {
-          constructor(...args) {
-            super(...args);
-            const draw = this.render.bind(this);
-            this.render = (scene, camera) => {
-              window.reviewScene = scene; window.reviewRenderer = this; return draw(scene, camera);
-            };
-          }
-        };
-      }});
-    });
-    const url = "http://127.0.0.1:" + server.address().port;
+    const { context, url } = session, errors = [];
+    await captureViews(context);
     const page = await context.newPage();
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(url);
@@ -58,8 +25,9 @@ const root = path.join(__dirname, "..");
     // Raw CDP touch exercises dragging; native mouse clicks exercise DOM controls.
     // Mixing CDP touch with Playwright tap can suppress Chromium's synthetic click.
     const cdp = await context.newCDPSession(page);
-    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 195, y: 755 }] });
-    await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 310, y: 755 }] });
+    const bounds = await page.locator("#scene").boundingBox();
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: bounds.x + bounds.width * .5, y: bounds.y + bounds.height * .9 }] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: bounds.x + bounds.width * .8, y: bounds.y + bounds.height * .9 }] });
     await page.evaluate(() => { for (let i = 0; i < 45; i++) tick(1 / 60); render(); });
     assert.ok(await page.evaluate(() => x > 270), "touch drag moves hero");
     await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
@@ -71,10 +39,30 @@ const root = path.join(__dirname, "..");
       return {state, same: before === JSON.stringify([elapsed, items, powerTimers, x])};
     });
     assert.deepEqual(paused, {state: "pause", same: true}, "pause freezes the run");
+    assert.equal(await page.evaluate(() => {
+      frame(100); const before = testViews.draws; resize(); frame(120);
+      return testViews.draws - before;
+    }), 2, "paused resize redraws both 3D scenes, even when W/H stay fixed");
     await page.getByRole("button", { name: "Продолжить", exact: true }).click();
     await page.waitForFunction(() => state === "play", null, { polling: 50 });
     await page.evaluate(() => { window.dispatchEvent(new Event("blur")); });
     assert.equal(await page.evaluate(() => state), "pause", "blur auto-pauses");
+    await page.evaluate(() => { start(); spawnIn = 999; });
+    await page.keyboard.down("ArrowRight");
+    await page.evaluate(() => { for (let i=0;i<20;i++) tick(1/60); });
+    await page.keyboard.up("ArrowRight");
+    assert.ok(await page.evaluate(() => x > W/2), "keyboard movement");
+    const pickups = await page.evaluate(() => {
+      start(); spawnIn=999;
+      const drop = type => ({type,x,y:catchY(),speed:120,age:0,variant:0,used:false});
+      items=[drop(0)]; tick(1/60);
+      const good={points,sausages,happy};
+      items=[drop(4)]; tick(1/60);
+      return {good,bad:{points,sausages,happy},hud:[$("points").textContent,$("sausages").textContent]};
+    });
+    assert.equal(pickups.good.points,1); assert.equal(pickups.good.sausages,1);
+    assert.ok(pickups.bad.happy < pickups.good.happy, "bad-food collision applies penalty");
+    assert.deepEqual(pickups.hud, [String(pickups.bad.points),String(pickups.bad.sausages)]);
     // All nine models and all effect branches must render without changing state/RNG.
     await page.evaluate(() => {
       start(); spawnIn = 999;
@@ -87,15 +75,15 @@ const root = path.join(__dirname, "..");
       items = [{ type: 0, x: 65, y: landingY() - 1, speed: 240, variant: 2, age: 1, used: false }];
       tick(1 / 60); render();
       const drop = streetEvents.drops[0];
-      const mesh = reviewScene.children.find((node) => node.isGroup && node.position.z === 50);
-      const first = { x: mesh.position.x + W / 2, y: H / 2 - mesh.position.y };
+      const mesh = testViews.gameplayScene.children.find((node) => node.isGroup && node.position.z === .5);
+      const first = { x: RatioPresentation.logicalX(mesh.position.x), y: RatioPresentation.fromWorldY(mesh.position.y) };
       for (let i = 0; i < 18; i++) tick(1 / 60);
       render();
-      const after = reviewScene.children.find((node) => node.isGroup && node.position.z === 50);
-      return { first, last: H / 2 - after.position.y, expected: drop.y, h: H, same: mesh === after };
+      const after = testViews.gameplayScene.children.find((node) => node.isGroup && node.position.z === .5);
+      return { first, last: RatioPresentation.fromWorldY(after.position.y), expected: drop.y, h: H, same: mesh === after };
     });
-    assert.equal(continuation.first.x, 65);
-    assert.equal(continuation.last, continuation.expected);
+    assert.ok(Math.abs(continuation.first.x - 65) < 1e-8);
+    assert.ok(Math.abs(continuation.last - continuation.expected) < 1e-8);
     assert.ok(continuation.last > continuation.h && continuation.same, "same pooled 3D object remains visible through the lower edge");
     await capture("miss-bottom-3d");
     await page.evaluate(() => {
@@ -115,6 +103,13 @@ const root = path.join(__dirname, "..");
     assert.equal(await page.evaluate(() => cats.length), 0);
     const dropResources = await page.evaluate(() => {
       const samples = [];
+      // WebGL uploads hidden hero branches lazily. Warm them explicitly so a
+      // first blink/breath cannot be mistaken for a resource leak after restart.
+      for (const time of [2.925, .7, 5.65]) {
+        start(); spawnIn=999; clock=time;
+        if (time === .7) { react=.25; chewTime=.1; }
+        render();
+      }
       for (let batch = 0; batch < 3; batch++) {
         for (let cycle = 0; cycle < 8; cycle++) {
           start(); spawnIn = 999; x = 320;
@@ -124,7 +119,7 @@ const root = path.join(__dirname, "..");
           for (let i = 0; i < 70; i++) tick(1 / 60);
           render();
         }
-        samples.push({ ...reviewRenderer.info.memory, programs: reviewRenderer.info.programs.length });
+        samples.push({ ...testViews.renderer.info.memory, programs: testViews.renderer.info.programs.length });
       }
       return samples;
     });
@@ -156,7 +151,7 @@ const root = path.join(__dirname, "..");
           if (target && Math.abs(target.x - x) > 6) keys.add(target.x > x ? "ArrowRight" : "ArrowLeft");
           tick(1 / 60);
           if (step % 60 === 0) {
-            const snapshot = () => JSON.stringify({ state, x, points, sausages, happy, elapsed, items, powerTimers, cats, flocks, catGifts, durationBones, runProgress, seed });
+            const snapshot = () => JSON.stringify({ state, x, points, sausages, happy, elapsed, items, powerTimers, cats, catGifts, streetEvents, durationBones, runProgress, seed });
             const before = snapshot(); render();
             if (snapshot() !== before) throw new Error("Renderer mutated gameplay or RNG");
             result.push(before);
@@ -170,6 +165,11 @@ const root = path.join(__dirname, "..");
     assert.deepEqual(threeRun, canvasRun, "2D/3D gameplay parity");
     assert.equal(await page.locator("#game").getAttribute("data-view"), "2d");
     await capture("play-2d");
+    assert.equal(await page.evaluate(() => {
+      pause(); frame(100); let paints=0;
+      const draw=renderCanvasScene; renderCanvasScene=()=>{paints++;draw();};
+      resize(); frame(120); return paints;
+    }),1,"paused Canvas redraws after raster resize");
     await page.goto(url);
     for (const size of [{ width: 844, height: 390 }, { width: 320, height: 568 }, { width: 390, height: 844 }]) {
       await page.setViewportSize(size);
@@ -198,9 +198,8 @@ const root = path.join(__dirname, "..");
     assert.equal(await blocked.locator("#game").getAttribute("data-view"), "2d");
     await blocked.evaluate(() => { start(); tick(1 / 60); render(); });
     assert.deepEqual(errors, [], "no browser exceptions");
-    console.log("PASS: WebGL startup, touch drag, pause/blur/resume, 9 food models, 17 effects, 2D/3D seeded parity and render purity, portrait/landscape resize, lose/restart, context loss and unavailable-WebGL fallbacks.");
+    console.log("PASS: WebGL startup, touch/keyboard, good/bad pickups, HUD, pause/blur/resume and paused resize, 9 food models, 17 effects, 2D/3D seeded parity and render purity, portrait/landscape resize, lose/restart, context loss and unavailable-WebGL fallbacks.");
   } finally {
-    if (browser) await browser.close();
-    server.close();
+    await session.close();
   }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

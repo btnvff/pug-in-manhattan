@@ -1,23 +1,16 @@
-// Real DOM/WebGL fault injection. Like character-browser.test.js, this uses local
-// content loading and does not claim coverage of HTTP navigation or Safari.
+// Real DOM/WebGL fault injection, independent of source-loading transport.
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
-const { installOfflinePages } = require("./browser-offline");
-const root = path.join(__dirname, "..");
+const { openBrowser, captureViews } = require("./browser-helpers");
 (async () => {
-  const browser = await chromium.launch({
-    executablePath: process.env.CHROMIUM_PATH || undefined,
-    headless: true, args: ["--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
-  });
+  const session = await openBrowser({ deviceScaleFactor: 2 });
   try {
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
-    installOfflinePages(context, root);
-    await context.addInitScript(() => { window.requestAnimationFrame = () => 1; });
+    const { context, url } = session;
+    await captureViews(context);
     const page = await context.newPage(), errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    for (const fault of ["model", "animation", "renderer", "resize", "context-loss", "dispose"]) {
-      await page.goto("http://local.test/");
+    for (const fault of ["model", "partial-model", "partial-hero", "world", "animation", "renderer", "resize", "context-loss", "dispose", "cleanup-error"]) {
+      await page.goto(url);
       assert.equal(await page.locator("#game").getAttribute("data-view"), "3d");
       await page.evaluate((fault) => {
         // Retire the initial view before installing allocation/disposal observers.
@@ -50,23 +43,37 @@ const root = path.join(__dirname, "..");
           renderer.forceContextLoss = () => { record.lost++; lose(); };
           return renderer;
         };
-        const factory = createModelFactory, world = createThreeWorld;
+        // Observe allocations before faulting constructors, not only completed scene trees.
+        for (const name of ["SphereGeometry", "BoxGeometry", "CylinderGeometry", "ConeGeometry", "TorusGeometry", "CapsuleGeometry", "TubeGeometry", "BufferGeometry", "PlaneGeometry", "ExtrudeGeometry", "MeshStandardMaterial", "MeshBasicMaterial", "DataTexture", "CanvasTexture"]) {
+          const Type = T[name];
+          T[name] = new Proxy(Type, { construct(target, args) {
+            const resource = Reflect.construct(target, args);
+            track(resource); return resource;
+          } });
+        }
+        const factory = createModelFactory, world = createRatioWorld, pug = createPugModel;
+        let worldOwner;
+        createPugModel = (...args) => { const hero = pug(...args); trackTree(hero); return hero; };
         createModelFactory = () => {
-          const model = factory(), pug = model.pugModel;
+          const model = factory();
           Object.values(model.geometries).forEach(track);
-          model.pugModel = () => { const hero = pug(); trackTree(hero); return hero; };
           return model;
         };
-        createThreeWorld = (...args) => { const scene = world(...args); trackTree(scene.root); return scene; };
+        createRatioWorld = (...args) => { worldOwner = world(...args); trackTree(worldOwner.root); return worldOwner; };
         window.lifecycleSnapshot = () => ({
           resources: [...resources.values()],
           renderers: renderers.map(({ disposed, lost }) => ({ disposed, lost })),
         });
-        window.runSnapshot = () => JSON.stringify({ points, happy, elapsed, x, items, powerTimers, cats, flocks, catGifts });
+        window.runSnapshot = () => JSON.stringify({ points, happy, elapsed, x, items, powerTimers, cats, catGifts, streetEvents });
         const fail = () => { throw new Error("injected " + fault + " failure"); };
         if (fault === "model") createPugModel = fail;
+        if (fault === "partial-model") T.BoxGeometry = fail;
+        if (fault === "partial-hero") T.DataTexture = fail;
+        if (fault === "world") T.CanvasTexture = fail;
         initializeView();
-        if (fault === "model") return;
+        if (["model", "partial-model", "partial-hero", "world"].includes(fault)) return;
+        const view = activeView; initializeView();
+        if (activeView !== view || renderers.length !== 1) throw new Error("duplicate renderer initialization");
         start(); spawnIn = 999;
         // Cover shared city/drop assets and private hero assets in the same teardown.
         items = Array.from({ length: 9 }, (_, type) => ({
@@ -79,11 +86,15 @@ const root = path.join(__dirname, "..");
         window.retiredCanvas = document.getElementById("scene-3d");
         if (fault === "animation") animatePugModel = fail;
         if (fault === "renderer") renderers[0].renderer.render = fail;
-        if (fault === "resize") { createThreeWorld = fail; W += 1; activeView.resize(); }
+        if (fault === "resize") { renderers[0].renderer.setSize = fail; resize(); }
         else if (fault === "context-loss") {
           const extension = retiredCanvas.getContext("webgl2").getExtension("WEBGL_lose_context");
           if (!extension) throw new Error("WEBGL_lose_context is required for this test");
           extension.loseContext();
+        } else if (fault === "cleanup-error") {
+          const release = worldOwner.dispose;
+          worldOwner.dispose = () => { release(); fail(); };
+          fallbackToCanvas();
         } else if (fault === "dispose") {
           activeView = null;
           retiredView.dispose(); retiredView.dispose();
@@ -98,15 +109,15 @@ const root = path.join(__dirname, "..");
       assert.deepEqual(metrics.renderers, [{ disposed: 1, lost: 1 }], fault + ": dispose renderer and release context exactly once");
       for (const resource of metrics.resources)
         assert.equal(resource.disposed, 1, fault + ": " + resource.kind + " is disposed exactly once");
-      if (fault !== "model" && fault !== "dispose") {
+      if (!["model", "partial-model", "partial-hero", "world", "dispose"].includes(fault)) {
         assert.equal(await page.evaluate(() => state), "pause", fault + ": pause rather than dropping the run");
         assert.equal(await page.evaluate(() => runSnapshot()), await page.evaluate(() => beforeFailure), fault + ": preserve gameplay state");
         await page.getByRole("button", { name: "Продолжить", exact: true }).click();
       }
       const resumed = await page.evaluate((fault) => {
-        if (fault === "model") start();
+        if (["model", "partial-model", "partial-hero", "world"].includes(fault)) start();
         // Repeated cleanup and late events from the old canvas must be harmless.
-        if (fault !== "model") {
+        if (!["model", "partial-model", "partial-hero", "world"].includes(fault)) {
           retiredView.dispose(); retiredView.render(); retiredView.resize();
           retiredCanvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
         }
@@ -119,6 +130,6 @@ const root = path.join(__dirname, "..");
       assert.deepEqual(await page.evaluate(() => lifecycleSnapshot()), metrics, fault + ": no double disposal or reallocation");
     }
     assert.deepEqual(errors, [], "faults are contained, with no uncaught browser exceptions");
-    console.log("PASS: model/animation/renderer/resize faults, real context loss and repeated disposal; all observed hero/world/shared resources disposed once; no stale canvas callbacks; gameplay preserved; Canvas resume and RAF continue.");
-  } finally { await browser.close(); }
+    console.log("PASS: model/partial-model/partial-hero/world/animation/renderer/resize faults, real context loss, cleanup failure and repeated disposal; all observed hero/world/shared resources disposed once; no stale canvas callbacks; gameplay preserved; Canvas resume and RAF continue.");
+  } finally { await session.close(); }
 })().catch((error) => { console.error(error); process.exitCode = 1; });
