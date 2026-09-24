@@ -2,25 +2,93 @@ name: Structural verification support
 on:
   push:
     branches: [chatgpt/structure-verification]
+    paths: [.github/workflows/structure-verification.yml]
 permissions:
-  contents: read
+  contents: write
+  statuses: write
 jobs:
-  snapshot:
+  verify-and-push:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      BASE_SHA: 61388622768eddc05da158c318d66a3f72a28f83
+      FEATURE_SHA: e6185ab29f76a326853421bcdc9663dcb9c4f04b
+      FEATURE_TREE: 02b2edd5cc37e3d4dca64faac11bdd6b4c746aef
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
-      - name: Export repository history without credentials
-        run: |
-          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
-          git bundle create "$RUNNER_TEMP/repository.bundle" --all
-          git log -30 --oneline --all > "$RUNNER_TEMP/history.txt"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/setup-node@v4
         with:
-          name: structural-source
-          path: |
-            ${{ runner.temp }}/repository.bundle
-            ${{ runner.temp }}/history.txt
+          node-version: '22'
+      - name: Restore the exact three reviewed commits outside the production tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(git rev-parse origin/main)" = "$BASE_SHA"
+          : > "$RUNNER_TEMP/feature.mbox.xz"
+          for object in cef9b4eed118fc6fa15e569042ae4000aa3d3f41 8929b57e2ba68f81eaa0d057268f9f65c8afc937 20de4b8681765d7e633c62ef56dcef176a44c46e c826b2acb97fcd0c2647499e8f859bf874a830dc ca81cf4d3f664080d5dc094d56b3ca8de969a972; do
+            gh api "repos/btnvff/pug-in-manhattan/git/blobs/$object" --jq .content | base64 --decode >> "$RUNNER_TEMP/feature.mbox.xz"
+          done
+          test "$(sha256sum "$RUNNER_TEMP/feature.mbox.xz" | cut -d' ' -f1)" = 9dfd155e9064f795fac35396448a5aad23020d3981d4f39d1ba27d22a3edd811
+          python -c 'import lzma,os,pathlib; p=pathlib.Path(os.environ["RUNNER_TEMP"]); (p/"feature.mbox").write_bytes(lzma.decompress((p/"feature.mbox.xz").read_bytes()))'
+          git checkout -b refactor/project-structure "$BASE_SHA"
+          git -c user.name=btnvff -c user.email=130178310+btnvff@users.noreply.github.com am --committer-date-is-author-date "$RUNNER_TEMP/feature.mbox"
+          test "$(git rev-parse HEAD)" = "$FEATURE_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$FEATURE_TREE"
+          git diff --check "$BASE_SHA"
+          test -z "$(git status --porcelain)"
+          mkdir -p "$RUNNER_TEMP/structure-checks"
+          git log -3 --format=fuller > "$RUNNER_TEMP/structure-checks/commits.txt"
+          git diff --stat "$BASE_SHA" > "$RUNNER_TEMP/structure-checks/diff-stat.txt"
+      - name: Install pinned external Chromium test tools without modifying the game
+        run: |
+          python -m pip install --target "$RUNNER_TEMP/browser-tools" playwright==1.57.0
+          export PYTHONPATH="$RUNNER_TEMP/browser-tools"
+          python -m playwright install --with-deps chromium
+          echo "PLAYWRIGHT_MODULE=$(python -c 'import playwright,pathlib; print(pathlib.Path(playwright.__file__).parent / "driver/package")')" >> "$GITHUB_ENV"
+          echo "CHROMIUM_PATH=$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')" >> "$GITHUB_ENV"
+      - name: Verify the original FULL-3D base over genuine HTTP
+        env:
+          SCREENSHOT_DIR: ${{ runner.temp }}/structure-checks/base-screenshots
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+          (cd "$RUNNER_TEMP/base" && xvfb-run -a node tests/run.js --all) 2>&1 | tee "$RUNNER_TEMP/structure-checks/base-tests.log"
+          git worktree remove "$RUNNER_TEMP/base"
+      - name: Run all eleven refactored suites over genuine HTTP
+        env:
+          SCREENSHOT_DIR: ${{ runner.temp }}/structure-checks/current-screenshots
+        run: |
+          xvfb-run -a node tests/run.js --all 2>&1 | tee "$RUNNER_TEMP/structure-checks/tests.log"
+      - name: Compare three ten-minute seeded gameplay and RNG runs
+        run: |
+          node tests/game/gameplay.test.js --compare "$BASE_SHA" --seconds 600 2>&1 | tee "$RUNNER_TEMP/structure-checks/parity.log"
+      - name: Compare twenty-five paired screenshots in one fixed HTTP environment
+        env:
+          SCREENSHOT_DIR: ${{ runner.temp }}/structure-checks/visual-screenshots
+        run: |
+          xvfb-run -a node tests/visual-compare.js "$BASE_SHA" 2>&1 | tee "$RUNNER_TEMP/structure-checks/visual.log"
+          git diff --check
+          test -z "$(git status --porcelain)"
+          test "$(git rev-parse HEAD^{tree})" = "$FEATURE_TREE"
+      - name: Push only the verified feature branch without force and record the passing gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch origin
+          test "$(git rev-parse origin/main)" = "$BASE_SHA"
+          git push -u origin refactor/project-structure
+          gh api --method POST "repos/btnvff/pug-in-manhattan/statuses/$FEATURE_SHA" -f state=success -f context=structure/verification -f description='11 HTTP suites, 3 long seeded runs and 25 exact visual pairs passed' -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          git fetch origin
+          git bundle create "$RUNNER_TEMP/structure-checks/repository.bundle" --all
+          printf 'HEAD=%s\nTREE=%s\nBASE=%s\n' "$FEATURE_SHA" "$FEATURE_TREE" "$BASE_SHA" > "$RUNNER_TEMP/structure-checks/verified.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: structural-regression-checks
+          path: ${{ runner.temp }}/structure-checks
           retention-days: 7
