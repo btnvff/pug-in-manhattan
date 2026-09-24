@@ -3,12 +3,13 @@ on:
   push:
     branches: [chatgpt/consolidation-publication]
 permissions:
-  contents: write
+  contents: read
+  actions: read
 concurrency:
   group: cleanup-publication
   cancel-in-progress: false
 jobs:
-  validate-and-push:
+  verify-live-pages:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -19,49 +20,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Restore verified original six-commit bundle
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Verify final main and export exact Git history for local sync
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/verification"
-          python3 - <<'PY'
-          import base64, hashlib, json, os, pathlib, urllib.request
-          shas = ['040e89a26e02605e6ddb82d92dfcf9f362fc59c0','25381615b78c8da9a54d54eea085415d6f4bcaed','ac1b443747c7318d44a856c39e004da31749acfd','bbbbb3082aaead49ab8d2032477dfe517916d56b']
-          fixes = {0: [(2460,2463,''),(16002,16004,'F')], 1: [(2836,2838,''),(16001,16004,'Y')]}
-          expected = ['2eb10c6c02bcae2fc98a964928cc9fb585bf646c','74f1180e1b00c3b6c8265c3f3978d9eb0dace4b0','ac1b443747c7318d44a856c39e004da31749acfd','bbbbb3082aaead49ab8d2032477dfe517916d56b']
-          chunks = []
-          for i, sha in enumerate(shas):
-              req = urllib.request.Request('https://api.github.com/repos/btnvff/pug-in-manhattan/git/blobs/' + sha, headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
-              with urllib.request.urlopen(req) as response:
-                  blob = json.load(response)
-              text = base64.b64encode(base64.b64decode(blob['content'])).decode('ascii')
-              for start, end, replacement in reversed(fixes.get(i, [])):
-                  text = text[:start] + replacement + text[end:]
-              data = base64.b64decode(text, validate=True)
-              actual = hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
-              assert actual == expected[i], (i,actual,expected[i])
-              chunks.append(data)
-          data = b''.join(chunks)
-          assert hashlib.sha256(data).hexdigest() == '034dd354afcd328480075dee2b51fd4ef909c0521003f4fdb54644be597b2e72'
-          (pathlib.Path(os.environ['RUNNER_TEMP']) / 'cleanup.bundle').write_bytes(data)
-          print('Bundle integrity PASS:', len(data), 'bytes')
-          PY
-          test "$(git rev-parse HEAD)" = 1df6682424eb2ae279786e1ff18cb62857494fcd
-          git bundle verify "$RUNNER_TEMP/cleanup.bundle"
-          git fetch "$RUNNER_TEMP/cleanup.bundle" refs/heads/cleanup/consolidation:refs/heads/cleanup/consolidation
-          git checkout cleanup/consolidation
-          test "$(git rev-parse HEAD)" = 7919fccf6e3adcc621e6ea1cbf9aa5e584ae4d6d
+          git checkout main
+          git pull --ff-only origin main
+          test "$(git rev-parse HEAD)" = 2eac676e5461d69cfd6812cdce80b099a412294d
           test "$(git rev-parse HEAD^{tree})" = fe4b84ac154c2bffb2aea1f36d5baedf438c9a2e
-          git merge-base --is-ancestor origin/main HEAD
-          git diff --check origin/main..HEAD
-          git diff --stat origin/main..HEAD | tee "$RUNNER_TEMP/verification/diffstat.txt"
-          git log --oneline origin/main..HEAD | tee "$RUNNER_TEMP/verification/commits.txt"
-      - name: Node suites and exact gameplay parity
-        run: |
-          set -euo pipefail
-          node tests/run.js | tee "$RUNNER_TEMP/verification/node.log"
-          node tests/gameplay.test.js --compare origin/main | tee "$RUNNER_TEMP/verification/parity.log"
+          git merge-base --is-ancestor 7919fccf6e3adcc621e6ea1cbf9aa5e584ae4d6d HEAD
+          test -z "$(git status --porcelain)"
+          git status --short --branch | tee "$RUNNER_TEMP/verification/git-status.txt"
+          git bundle create "$RUNNER_TEMP/verification/main.bundle" refs/heads/main refs/remotes/origin/main refs/remotes/origin/cleanup/consolidation
+          sha256sum "$RUNNER_TEMP/verification/main.bundle" | tee "$RUNNER_TEMP/verification/bundle-sha256.txt"
       - name: Install external browser test tools
         run: |
           python3 -m venv "$RUNNER_TEMP/browser-tools"
@@ -74,26 +45,183 @@ jobs:
           with sync_playwright() as p:
               print('CHROMIUM_PATH='+p.chromium.executable_path)
           PY
-      - name: All browser suites over actual HTTP
+      - name: Confirm successful Pages deployment of the exact merged main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, time, urllib.request
+          sha = '2eac676e5461d69cfd6812cdce80b099a412294d'
+          url = 'https://api.github.com/repos/btnvff/pug-in-manhattan/actions/runs?head_sha='+sha+'&per_page=30'
+          for attempt in range(40):
+              req = urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+              with urllib.request.urlopen(req) as response:
+                  runs = json.load(response)['workflow_runs']
+              pages = [run for run in runs if run['name']=='pages build and deployment']
+              if pages and pages[0]['status']=='completed':
+                  run=pages[0]
+                  assert run['conclusion']=='success', run['conclusion']
+                  pathlib.Path(os.environ['RUNNER_TEMP'],'verification','pages-deployment.json').write_text(json.dumps(run,indent=2))
+                  print('PAGES DEPLOY SUCCESS',sha,run['id'])
+                  break
+              time.sleep(10)
+          else:
+              raise RuntimeError('Pages deployment was not confirmed within the verification window')
+          PY
+      - name: Live production browser checks and exact asset parity
+        env:
+          VERIFY_OUT: ${{ runner.temp }}/verification
         run: |
           set -euo pipefail
-          unset OFFLINE_BROWSER
-          xvfb-run -a node tests/run.js --browser | tee "$RUNNER_TEMP/verification/browser-http.log"
-      - name: Push entire cleanup branch without rewriting history
-        run: |
-          set -euo pipefail
-          git add -A
+          cat > "$RUNNER_TEMP/verify-live.cjs" <<'JS'
+          'use strict';
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const crypto = require('node:crypto');
+          const cp = require('node:child_process');
+          const { chromium } = require(process.env.PLAYWRIGHT_MODULE);
+          const base = 'https://btnvff.github.io/pug-in-manhattan/';
+          const out = process.env.VERIFY_OUT;
+          fs.mkdirSync(out, { recursive: true });
+          const report = { timestamp: new Date().toISOString(), main: cp.execFileSync('git', ['rev-parse', 'HEAD'], {encoding:'utf8'}).trim(), assets:[], views:[], unexpectedErrors:[], networkErrors:[], expectedDiagnostics:[], requests:[] };
+          const removed = ['js/world.js','js/world-details.js','js/world-3d.js','js/street-actors-3d.js','tests/city-perspective.test.js','tests/browser-offline.js','CHARACTER_REVIEW.md','PUG-WORLD-RATIO.md'];
+          const hash = data => crypto.createHash('sha256').update(data).digest('hex');
+          const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+          async function assets() {
+            const html = fs.readFileSync('index.html','utf8');
+            const files = new Set(['index.html', ...[...html.matchAll(/(?:src|href)="\.\/([^"]+)"/g)].map(m=>m[1]), 'js/vendor/three-LICENSE.txt']);
+            for (const icon of JSON.parse(fs.readFileSync('manifest.webmanifest','utf8')).icons) files.add(icon.src.replace(/^\.\//,''));
+            for (const file of files) {
+              const response = await fetch(new URL(file,base), {cache:'no-store', signal:AbortSignal.timeout(60000)});
+              assert.equal(response.status,200,file+' must be published');
+              const bytes = Buffer.from(await response.arrayBuffer());
+              assert.equal(hash(bytes),hash(fs.readFileSync(file)),file+' must match merged main exactly');
+              report.assets.push({file,status:response.status,sha256:hash(bytes),type:response.headers.get('content-type')});
+            }
+            report.assetParity = 'PASS';
+          }
+          function observe(page, label, injected=false) {
+            page.on('pageerror', e => report.unexpectedErrors.push({label,type:'exception',message:e.message}));
+            page.on('console', msg => {
+              if (!['error','warning'].includes(msg.type())) return;
+              const item = {label,type:msg.type(),message:msg.text()};
+              if (injected && /Error creating WebGL context|3D unavailable; using Canvas 2D/.test(msg.text())) report.expectedDiagnostics.push(item);
+              else if (msg.type()==='error') report.unexpectedErrors.push(item);
+              else report.expectedDiagnostics.push(item);
+            });
+            page.on('response', r=> {if(r.status()>=400) report.networkErrors.push({label,url:r.url(),status:r.status()});});
+            page.on('requestfailed', r=>report.networkErrors.push({label,url:r.url(),error:r.failure()?.errorText}));
+            page.on('request', r=> {
+              report.requests.push({label,url:r.url()});
+              const p = new URL(r.url()).pathname.replace('/pug-in-manhattan/','');
+              if(removed.includes(p)) report.unexpectedErrors.push({label,type:'legacy-request',path:p});
+            });
+          }
+          async function smoke(browser, view) {
+            const context = await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1});
+            try {
+              const page = await context.newPage();
+              observe(page,view);
+              page.setDefaultTimeout(30000);
+              const response = await page.goto(base+(view==='2d'?'?view=2d':''),{waitUntil:'networkidle',timeout:120000});
+              assert.equal(response.status(),200);
+              assert.equal(await page.locator('#game').getAttribute('data-view'),view);
+              assert.equal(await page.evaluate(()=>state),'menu');
+              if(view==='3d') assert.ok(await page.evaluate(()=>Boolean(activeView && window.THREE && document.getElementById('scene-3d'))));
+              await page.screenshot({path:path.join(out,view+'-menu.png')});
+              await page.locator('#start').click();
+              await page.waitForFunction(()=>state==='play' && elapsed>.15,null,{polling:50});
+              await page.evaluate(()=>document.activeElement?.blur());
+              const beforeX = await page.evaluate(()=>x);
+              await page.keyboard.down('ArrowLeft');
+              try {await page.waitForFunction(n=>x<n-15,beforeX,{polling:50});}
+              finally {await page.keyboard.up('ArrowLeft');}
+              const touchX=await page.evaluate(()=>x),bounds=await page.locator('#scene').boundingBox();
+              const cdp = await context.newCDPSession(page);
+              await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:bounds.x+bounds.width*.5,y:bounds.y+bounds.height*.9}]});
+              await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:bounds.x+bounds.width*.8,y:bounds.y+bounds.height*.9}]});
+              try {await page.waitForFunction(n=>x>n+20,touchX,{polling:50});}
+              finally {await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});}
+              const original = await page.evaluate(()=>{
+                spawnIn=999;const old=sausages;
+                items=[{type:0,x,y:catchY(),speed:120,age:0,variant:0,used:false}];
+                return old;
+              });
+              await page.waitForFunction(n=>sausages===n+1,original,{polling:50});
+              const happiness=await page.evaluate(()=>{const old=happy;items=[{type:4,x,y:catchY(),speed:120,age:0,variant:0,used:false}];return old;});
+              await page.waitForFunction(n=>happy<n && items.length===0,happiness,{polling:50});
+              assert.ok(await page.evaluate(()=>document.getElementById('points').textContent===String(points)&&document.getElementById('sausages').textContent===String(sausages)));
+              await page.locator('#pause').click();
+              await page.waitForFunction(()=>state==='pause',null,{polling:50});
+              const snapshot=await page.evaluate(()=>JSON.stringify([elapsed,x,items,points,sausages,powerTimers]));
+              await delay(250);
+              assert.equal(await page.evaluate(()=>JSON.stringify([elapsed,x,items,points,sausages,powerTimers])),snapshot);
+              await page.setViewportSize({width:320,height:568});
+              await page.waitForFunction(()=>!needsRender,null,{polling:50});
+              assert.equal(await page.evaluate(()=>JSON.stringify([elapsed,x,items,points,sausages,powerTimers])),snapshot);
+              assert.ok(await page.evaluate(()=>cv.width>0&&cv.height>0&&(!activeView||document.getElementById('scene-3d').width===cv.width)));
+              await page.screenshot({path:path.join(out,view+'-paused-resize.png')});
+              await page.locator('#resume').click();
+              const before=await page.evaluate(()=>elapsed);
+              await page.waitForFunction(n=>state==='play'&&elapsed>n+.1,before,{polling:50});
+              await page.setViewportSize({width:844,height:390});
+              await page.waitForFunction(()=>!needsRender,null,{polling:50});
+              assert.ok(await page.evaluate(()=>cv.width>0&&cv.height>0));
+              await page.setViewportSize({width:390,height:844});
+              await page.locator('#pause').click();
+              await page.locator('#restart').click();
+              assert.ok(await page.evaluate(()=>state==='play'&&points===0&&sausages===0));
+              await page.screenshot({path:path.join(out,view+'-play.png')});
+              await page.evaluate(()=>{happy=1;collect({type:8});});
+              await page.waitForFunction(()=>state==='lose',null,{polling:50});
+              await page.locator('#restart').click();
+              assert.ok(await page.evaluate(()=>state==='play'&&points===0&&sausages===0));
+              if(view==='3d') {
+                await page.evaluate(()=>document.getElementById('scene-3d').getContext('webgl2').getExtension('WEBGL_lose_context').loseContext());
+                await page.waitForFunction(()=>document.getElementById('game').dataset.view==='2d'&&state==='pause',null,{polling:50});
+                await page.locator('#resume').click();
+                const time=await page.evaluate(()=>elapsed);
+                await page.waitForFunction(n=>elapsed>n+.1,time,{polling:50});
+                await page.screenshot({path:path.join(out,'webgl-loss-fallback.png')});
+                report.runtimeFallback='PASS';
+              }
+              report.views.push({view,status:'PASS',checks:['real RAF','Start','keyboard','touch drag','good/bad pickups','HUD','pause/resume','paused resize','portrait/landscape','restart','lose/restart']});
+            } finally {await context.close();}
+          }
+          (async()=>{
+            let browser;
+            try {
+              await assets();
+              browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH,headless:true,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+              await smoke(browser,'3d');await smoke(browser,'2d');
+              const context=await browser.newContext({viewport:{width:390,height:844}});
+              try {
+                await context.addInitScript(()=>{const orig=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(kind,...args){return kind.startsWith('webgl')?null:orig.call(this,kind,...args);};});
+                const page=await context.newPage();observe(page,'no-WebGL',true);
+                await page.goto(base,{waitUntil:'networkidle',timeout:120000});
+                assert.equal(await page.locator('#game').getAttribute('data-view'),'2d');
+                await page.locator('#start').click();
+                await page.waitForFunction(()=>state==='play'&&elapsed>.15,null,{polling:50});
+                report.initializationFallback='PASS';
+              } finally {await context.close();}
+              assert.deepEqual(report.unexpectedErrors,[],'no critical console errors or exceptions');
+              assert.deepEqual(report.networkErrors,[],'no production 404 or failed requests');
+              report.status='PASS';
+            } catch(e) {report.status='FAIL';report.failure=e.stack;throw e;}
+            finally {
+              if(browser)await browser.close();
+              fs.writeFileSync(path.join(out,'live-report.json'),JSON.stringify(report,null,2));
+              console.log(JSON.stringify({...report,requests:report.requests.length,assets:report.assets.length},null,2));
+            }
+          })().catch(e=>{console.error(e);process.exitCode=1;});
+          JS
+          node --check "$RUNNER_TEMP/verify-live.cjs"
+          xvfb-run -a node "$RUNNER_TEMP/verify-live.cjs" | tee "$RUNNER_TEMP/verification/live.log"
           test -z "$(git status --porcelain)"
-          git fetch origin
-          test "$(git rev-parse origin/main)" = 1df6682424eb2ae279786e1ff18cb62857494fcd
-          git merge-base --is-ancestor origin/cleanup/consolidation HEAD
-          git push -u origin cleanup/consolidation
-          test "$(git ls-remote origin refs/heads/cleanup/consolidation | cut -f1)" = 7919fccf6e3adcc621e6ea1cbf9aa5e584ae4d6d
-          git status --short --branch | tee "$RUNNER_TEMP/verification/final-status.txt"
-          echo 'PUSH SUCCESS: 7919fccf6e3adcc621e6ea1cbf9aa5e584ae4d6d' | tee "$RUNNER_TEMP/verification/push.txt"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: cleanup-publication-checks
+          name: cleanup-live-verification
           path: ${{ runner.temp }}/verification
           retention-days: 7
