@@ -15,8 +15,8 @@ jobs:
         shell: bash
     env:
       BASE_SHA: 61388622768eddc05da158c318d66a3f72a28f83
-      FEATURE_SHA: e6185ab29f76a326853421bcdc9663dcb9c4f04b
-      FEATURE_TREE: 02b2edd5cc37e3d4dca64faac11bdd6b4c746aef
+      FEATURE_SHA: d8a896ecb32a581e2c7578d343cc90587ba7e704
+      FEATURE_TREE: 5328101fad04adb333e7abb963f933947982ee7b
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,7 +25,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Restore the exact three reviewed commits outside the production tree
+      - name: Restore the exact four reviewed commits outside the production tree
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -35,15 +35,17 @@ jobs:
             gh api "repos/btnvff/pug-in-manhattan/git/blobs/$object" --jq .content | base64 --decode >> "$RUNNER_TEMP/feature.mbox.xz"
           done
           test "$(sha256sum "$RUNNER_TEMP/feature.mbox.xz" | cut -d' ' -f1)" = 9dfd155e9064f795fac35396448a5aad23020d3981d4f39d1ba27d22a3edd811
-          python -c 'import lzma,os,pathlib; p=pathlib.Path(os.environ["RUNNER_TEMP"]); (p/"feature.mbox").write_bytes(lzma.decompress((p/"feature.mbox.xz").read_bytes()))'
+          gh api repos/btnvff/pug-in-manhattan/git/blobs/ce74f7c478a340a22c8bd88379a4c63cabb5d2ea --jq .content | base64 --decode > "$RUNNER_TEMP/url-fix.mbox.xz"
+          test "$(sha256sum "$RUNNER_TEMP/url-fix.mbox.xz" | cut -d' ' -f1)" = 44b60c6a636cc5ed093b89ad57947811f49ab1e40bb05cee659ef3fd909e9761
+          python -c 'import lzma,os,pathlib; p=pathlib.Path(os.environ["RUNNER_TEMP"]); [(p/name).write_bytes(lzma.decompress((p/(name+".xz")).read_bytes())) for name in ["feature.mbox","url-fix.mbox"]]'
           git checkout -b refactor/project-structure "$BASE_SHA"
-          git -c user.name=btnvff -c user.email=130178310+btnvff@users.noreply.github.com am --committer-date-is-author-date "$RUNNER_TEMP/feature.mbox"
+          git -c user.name=btnvff -c user.email=130178310+btnvff@users.noreply.github.com am --committer-date-is-author-date "$RUNNER_TEMP/feature.mbox" "$RUNNER_TEMP/url-fix.mbox"
           test "$(git rev-parse HEAD)" = "$FEATURE_SHA"
           test "$(git rev-parse HEAD^{tree})" = "$FEATURE_TREE"
           git diff --check "$BASE_SHA"
           test -z "$(git status --porcelain)"
           mkdir -p "$RUNNER_TEMP/structure-checks"
-          git log -3 --format=fuller > "$RUNNER_TEMP/structure-checks/commits.txt"
+          git log -4 --format=fuller > "$RUNNER_TEMP/structure-checks/commits.txt"
           git diff --stat "$BASE_SHA" > "$RUNNER_TEMP/structure-checks/diff-stat.txt"
       - name: Install pinned external Chromium test tools without modifying the game
         run: |
