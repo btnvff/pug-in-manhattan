@@ -46,6 +46,6 @@ function drawRatioDiagnostics() {
 }
 if (ratioMode === "reference" || ratioMode === "blockout")
   $("game").dataset.ratioDiagnostic = "true";
-// Declare spaces for DOM overlays and fixed-depth fallback assets.
+// Declare the coordinate space of DOM overlays.
 for (const node of (document.querySelectorAll?.("#game > :not(canvas)") || []))
   node.dataset.coordinateSpace = "HUD";

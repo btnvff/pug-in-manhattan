@@ -30,7 +30,7 @@ function loadGame(ref, seed = 42, options = {}) {
   const math = Object.create(Math);
   math.random = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
   const sandbox = {
-    innerWidth:390,innerHeight:844,getComputedStyle:()=>({paddingLeft:0,paddingRight:0,paddingTop:0,paddingBottom:0}), Math: math, console: { ...console, warn: (...args) => warnings.push(args) }, URLSearchParams, location: { search: options.search ?? (options.rendererDouble ? "" : "?view=2d") },
+    innerWidth:390,innerHeight:844,getComputedStyle:()=>({paddingLeft:0,paddingRight:0,paddingTop:0,paddingBottom:0}), Math: math, console: { ...console, warn: (...args) => warnings.push(args) }, URLSearchParams, location: { search: options.search ?? "" },
     document: {
       hidden: false, body: element(), querySelectorAll: () => [], addEventListener() {}, createElement: element,
       getElementById(id) { if (!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); },
@@ -42,6 +42,8 @@ function loadGame(ref, seed = 42, options = {}) {
   vm.createContext(sandbox);
   for (const file of scripts) {
     if (file.includes("vendor/") && !options.rendererDouble) continue;
+    if (file === "js/render.js" && !options.rendererDouble)
+      vm.runInContext("createThreeView = () => ({render() {}, resize() {}, dispose() {}})", sandbox);
     vm.runInContext(read(file), sandbox, { filename: file });
     if (file.includes("vendor/") && options.rendererDouble) {
       sandbox.window.THREE.WebGLRenderer = class {

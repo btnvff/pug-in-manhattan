@@ -1,5 +1,10 @@
 // Presentation after a miss: no hitboxes, rewards or gameplay RNG.
 // Live items still retire at the original line, so spawn/bonus rules stay unchanged.
+// Shared easing for 3D street cats and their gift origins.
+const easeInOut = (u) => {
+  u = Math.max(0, Math.min(1, u));
+  return u * u * (3 - 2 * u);
+};
 const streetEvents = { drops: [], eligible: 0, untilCat: 12, cycle: 0, cooldown: 0 };
 function resetStreetEvents() {
   streetEvents.drops.length = 0;

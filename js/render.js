@@ -1,35 +1,36 @@
-// Renderer selection never changes gameplay, input coordinates or saved progress.
+// One WebGL presentation. Graphics failure stops play; no alternative renderer.
 let activeView = null, needsRender = true;
 function initializeView() {
-  if (activeView) return;
-  document.getElementById("game").dataset.view = "2d";
-  if (new URLSearchParams(location.search).get("view") === "2d") return;
+  if (activeView || graphicsUnavailable) return;
   try {
     activeView = createThreeView();
-    document.getElementById("game").dataset.view = "3d";
+    $("game").dataset.view = "3d";
   } catch (error) {
-    console.warn("3D unavailable; using Canvas 2D.", error);
-    document.getElementById("game").dataset.view = "2d";
+    showGraphicsError(error);
   }
 }
-function fallbackToCanvas(error) {
-  if (error) console.warn("3D failed; using Canvas 2D.", error);
+function showGraphicsError(error) {
+  if (graphicsUnavailable) return;
+  graphicsUnavailable = true;
+  if (error) console.warn("3D graphics unavailable.", error);
   pause();
+  clearInput();
+  stopAudioVoices();
   const view = activeView;
   activeView = null;
   try { view?.dispose(); }
-  catch (cleanupError) { console.warn("3D cleanup failed; Canvas remains available.", cleanupError); }
-  document.getElementById("game").dataset.view = "2d";
-  renderCanvasScene();
-  needsRender = true;
+  catch (cleanupError) { console.warn("3D cleanup failed.", cleanupError); }
+  if (ctx) clearRatioCanvas();
+  $("game").dataset.view = "unavailable";
+  ui();
 }
 function render() {
-  if (activeView) activeView.render();
-  else renderCanvasScene();
+  activeView?.render();
   needsRender = false;
 }
 let lastPaintState = "";
 function frame(now) {
+  if (graphicsUnavailable) return;
   const dt = Math.min((now - last) / 1000 || 0, BALANCE.frame.maxDelta);
   last = now;
   tick(dt);
@@ -43,13 +44,13 @@ function frame(now) {
     lastPaintState = state;
   }
   audioFrame();
-  requestAnimationFrame(frame);
+  if (!graphicsUnavailable) requestAnimationFrame(frame);
 }
 initializeView();
 resize();
-// Register only after all deferred scripts and both renderers are initialized.
+// Register only after all deferred scripts and the 3D view are initialized.
 window.addEventListener("resize", resize);
 soundUI();
 ui();
 hud();
-requestAnimationFrame(frame);
+if (!graphicsUnavailable) requestAnimationFrame(frame);

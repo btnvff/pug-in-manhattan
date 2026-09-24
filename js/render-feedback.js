@@ -1,4 +1,8 @@
-// Screen-space feedback shared by both renderers, plus original Canvas effects.
+// Transparent screen-space effects over the WebGL scene, never a standalone renderer.
+let ratioRaster = 1;
+function clearRatioCanvas() { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height); }
+function beginRatioFeedback() { const a = RatioPresentation; ctx.setTransform(ratioRaster * PUG_WORLD_RATIO.reference_width / PUG_WORLD_RATIO.logical_game.width, 0, 0, ratioRaster * a.unit, 0, ratioRaster * (a.py(0))); }
+function beginRatioPixels() { ctx.setTransform(ratioRaster, 0, 0, ratioRaster, 0, 0); }
 function drawSpecial(it) {
   if (!it.power) return;
   const p = powerInfo[it.power];
@@ -98,68 +102,6 @@ function drawPowerAura() {
   }
   ctx.restore();
 }
-function drawBirdHelpers() {
-  if (powerTimers.birds <= 0) return;
-  ctx.save();
-  ctx.globalAlpha = Math.min(1, birdAge / 0.22, powerTimers.birds / 0.3);
-  for (let n = 0; n < 3; n++) {
-    const p = birdPosition(n),
-      flap = Math.sin(clock * 22 + n * 2);
-    ctx.save();
-    ctx.translate(p.x, p.y + Math.sin(clock * 3 + n) * 3);
-    ctx.scale(n === 2 ? -1 : 1, 1);
-    ellipse(0, 0, 13, 8, "#a68155", "#5d4939", 1);
-    path(
-      `M-5 -3 Q-21 ${-12 - flap * 12} -22 ${-19 - flap * 9} Q-4 -13 5 -2 Z`,
-      "#76604b",
-      "#d0ad74",
-      1,
-    );
-    path("M-10 1 L-24 -5 L-20 4 Z", "#685544", null);
-    ellipse(9, -6, 7, 6, "#73523b", null);
-    ellipse(11, -4, 4, 3, "#f2ddb0", null);
-    ellipse(12, -8, 1.6, 1.6, "#172e37", null);
-    ellipse(12.4, -8.5, 0.5, 0.5, "#fff", null);
-    path("M15 -5 L22 -3 L15 -1 Z", "#dfa549", null);
-    line(-3, 6, -1, 10, "#82633c", 1);
-    line(3, 6, 5, 10, "#82633c", 1);
-    ctx.restore();
-  }
-  ctx.restore();
-}
-function drawCatHelpers() {
-  if (powerTimers.helpers <= 0) return;
-  ctx.save();
-  ctx.globalAlpha = Math.min(1, catAge / 0.22, powerTimers.helpers / 0.3);
-  for (const side of [-1, 1]) {
-    const pose = helperPresentation(side);
-    const c = {
-      presentation: pose,
-      x: helperX(side) - side * 27,
-      t: 1.85,
-      side,
-      coat: side < 0 ? 0 : 1,
-      helper: true,
-    };
-    drawCat(c);
-  }
-  ctx.restore();
-}
-function drawCatGifts() {
-  for (const g of catGifts) {
-    const u = clamp(g.t / BALANCE.helpers.flight, 0, 1),
-      mouthY = ground() - 64 * heroScale();
-    const origin = helperGiftOrigin(g);
-    const gx = origin.sx + (x + headTurn * 5 - origin.sx) * u,
-      gy = origin.sy + (mouthY - origin.sy) * u - Math.sin(u * Math.PI) * 45;
-    ctx.save();
-    ctx.translate(gx, gy);
-    ctx.scale(0.65, 0.65);
-    drawFood(0, 0, 0, (1 - u) * 2, g.variant);
-    ctx.restore();
-  }
-}
-
 function drawRunFeedback() {
   ctx.save();
   if (shieldPulse > 0 || recoveryPulse > 0) {

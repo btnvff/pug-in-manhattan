@@ -278,6 +278,10 @@ canvas { width: 100%; height: 100%; display: block; }
   #condition { padding: 3px 7px; }
   #powers span { padding: 3px 5px; }
 }
-#game[data-ratio-diagnostic="true"] #overlay,
+#game[data-ratio-diagnostic="true"]:not([data-view="unavailable"]) #overlay,
 #game[data-ratio-diagnostic="true"] #sound,
 #game[data-ratio-diagnostic="true"] #hint { display: none; }
+
+/* A WebGL error is an explicit stopped state, not another game view. */
+#overlay.graphics-error { background: #d7e4e8; }
+#game[data-view="unavailable"] #sound { display: none; }
