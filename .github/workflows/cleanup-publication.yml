@@ -3,30 +3,97 @@ on:
   push:
     branches: [chatgpt/consolidation-publication]
 permissions:
-  contents: read
+  contents: write
+concurrency:
+  group: cleanup-publication
+  cancel-in-progress: false
 jobs:
-  verify-transport:
+  validate-and-push:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - name: Inspect bundle transport without updating game branches
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Restore verified original six-commit bundle
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p "$RUNNER_TEMP/transport"
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/verification"
           python3 - <<'PY'
-          import base64, json, os, pathlib, urllib.request
-          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'transport'
-          shas = ['040e89a26e02605e6ddb82d92dfcf9f362fc59c0', '25381615b78c8da9a54d54eea085415d6f4bcaed']
+          import base64, hashlib, json, os, pathlib, urllib.request
+          shas = ['040e89a26e02605e6ddb82d92dfcf9f362fc59c0','25381615b78c8da9a54d54eea085415d6f4bcaed','ac1b443747c7318d44a856c39e004da31749acfd','bbbbb3082aaead49ab8d2032477dfe517916d56b']
+          fixes = {0: [(2460,2463,''),(16002,16004,'F')], 1: [(2836,2838,''),(16001,16004,'Y')]}
+          expected = ['2eb10c6c02bcae2fc98a964928cc9fb585bf646c','74f1180e1b00c3b6c8265c3f3978d9eb0dace4b0','ac1b443747c7318d44a856c39e004da31749acfd','bbbbb3082aaead49ab8d2032477dfe517916d56b']
+          chunks = []
           for i, sha in enumerate(shas):
-              req = urllib.request.Request('https://api.github.com/repos/btnvff/pug-in-manhattan/git/blobs/' + sha, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+              req = urllib.request.Request('https://api.github.com/repos/btnvff/pug-in-manhattan/git/blobs/' + sha, headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
               with urllib.request.urlopen(req) as response:
                   blob = json.load(response)
-              data = base64.b64decode(blob['content'])
-              (out / ('part-%d.b64' % i)).write_text(base64.b64encode(data).decode('ascii'))
-              print(i, sha, len(data))
+              text = base64.b64encode(base64.b64decode(blob['content'])).decode('ascii')
+              for start, end, replacement in reversed(fixes.get(i, [])):
+                  text = text[:start] + replacement + text[end:]
+              data = base64.b64decode(text, validate=True)
+              actual = hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+              assert actual == expected[i], (i,actual,expected[i])
+              chunks.append(data)
+          data = b''.join(chunks)
+          assert hashlib.sha256(data).hexdigest() == '034dd354afcd328480075dee2b51fd4ef909c0521003f4fdb54644be597b2e72'
+          (pathlib.Path(os.environ['RUNNER_TEMP']) / 'cleanup.bundle').write_bytes(data)
+          print('Bundle integrity PASS:', len(data), 'bytes')
           PY
+          test "$(git rev-parse HEAD)" = 1df6682424eb2ae279786e1ff18cb62857494fcd
+          git bundle verify "$RUNNER_TEMP/cleanup.bundle"
+          git fetch "$RUNNER_TEMP/cleanup.bundle" refs/heads/cleanup/consolidation:refs/heads/cleanup/consolidation
+          git checkout cleanup/consolidation
+          test "$(git rev-parse HEAD)" = 7919fccf6e3adcc621e6ea1cbf9aa5e584ae4d6d
+          test "$(git rev-parse HEAD^{tree})" = fe4b84ac154c2bffb2aea1f36d5baedf438c9a2e
+          git merge-base --is-ancestor origin/main HEAD
+          git diff --check origin/main..HEAD
+          git diff --stat origin/main..HEAD | tee "$RUNNER_TEMP/verification/diffstat.txt"
+          git log --oneline origin/main..HEAD | tee "$RUNNER_TEMP/verification/commits.txt"
+      - name: Node suites and exact gameplay parity
+        run: |
+          set -euo pipefail
+          node tests/run.js | tee "$RUNNER_TEMP/verification/node.log"
+          node tests/gameplay.test.js --compare origin/main | tee "$RUNNER_TEMP/verification/parity.log"
+      - name: Install external browser test tools
+        run: |
+          python3 -m venv "$RUNNER_TEMP/browser-tools"
+          "$RUNNER_TEMP/browser-tools/bin/pip" install playwright==1.57.0
+          "$RUNNER_TEMP/browser-tools/bin/python" -m playwright install --with-deps chromium
+          "$RUNNER_TEMP/browser-tools/bin/python" - <<'PY' >> "$GITHUB_ENV"
+          import pathlib, playwright
+          from playwright.sync_api import sync_playwright
+          print('PLAYWRIGHT_MODULE='+str(pathlib.Path(playwright.__file__).parent / 'driver' / 'package'))
+          with sync_playwright() as p:
+              print('CHROMIUM_PATH='+p.chromium.executable_path)
+          PY
+      - name: All browser suites over actual HTTP
+        run: |
+          set -euo pipefail
+          unset OFFLINE_BROWSER
+          xvfb-run -a node tests/run.js --browser | tee "$RUNNER_TEMP/verification/browser-http.log"
+      - name: Push entire cleanup branch without rewriting history
+        run: |
+          set -euo pipefail
+          git add -A
+          test -z "$(git status --porcelain)"
+          git fetch origin
+          test "$(git rev-parse origin/main)" = 1df6682424eb2ae279786e1ff18cb62857494fcd
+          git merge-base --is-ancestor origin/cleanup/consolidation HEAD
+          git push -u origin cleanup/consolidation
+          test "$(git ls-remote origin refs/heads/cleanup/consolidation | cut -f1)" = 7919fccf6e3adcc621e6ea1cbf9aa5e584ae4d6d
+          git status --short --branch | tee "$RUNNER_TEMP/verification/final-status.txt"
+          echo 'PUSH SUCCESS: 7919fccf6e3adcc621e6ea1cbf9aa5e584ae4d6d' | tee "$RUNNER_TEMP/verification/push.txt"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: cleanup-transport-verification
-          path: ${{ runner.temp }}/transport
-          retention-days: 1
+          name: cleanup-publication-checks
+          path: ${{ runner.temp }}/verification
+          retention-days: 7
