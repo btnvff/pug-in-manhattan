@@ -16,6 +16,16 @@ Verification evidence from **2026-09-24**: [Pages deployment](https://github.com
 
 The product is intentionally FULL-3D. Do not restore the retired standalone 2D world, pug, food renderer, view selector or old-game fallback. Earlier instructions to preserve that fallback refer to the retired architecture. Preserve the Canvas overlays, diagnostics and procedural textures used by the current 3D product. Permanent review entry points are [PUG-WORLD-RATIO.md](PUG-WORLD-RATIO.md) and [CHARACTER_REVIEW.md](CHARACTER_REVIEW.md); they point to the current implementations and constraints rather than historical preview reports.
 
+### Unpublished street-environment checkpoint — 2026-09-24
+
+`chatgpt/street-environment-rebuild` starts from main `3e5cc643fbfc2982b6309a6c9c268f1f04975c73`. **PARTIAL**: the badge/cache keys remain v0.0.3; this is not a new release or production baseline. Retain the runtime rollback point above. No merge or deployment is authorized for this checkpoint.
+
+`js/world/ratio-scene.js` now uses registry-driven street edges with continuous block/sidewalk ground and curb returns. The bridge has one connected deck inside its previous overall envelope, tower crossheads and cable spans derived from the same supports. Camera, ratio 1.0.0/fixture, hero, gameplay and actor motion are unchanged. Ground coverage, tower/cable contact, deck continuity and hanger connections have targeted assertions in `tests/world/world-ratio.test.js`.
+
+Checked locally: repository, WorldRatio and ratio-runtime tests; gameplay comparison with the starting main (three seeds, 30 seconds each); actual Chromium 144/WebGL 2 SwiftShader reference, blockout and phone-size menu/play captures. Matching reference captures retain identical camera/hero metadata and zero changed pixels in the hero/contact and HUD regions. Targeted browser checks passed for sampled actor bounds, same-time/pause invariance, three fixed-pose restarts and genuine context-loss shutdown. The broader browser suite timed out during its restart stress loop and is **not** recorded as passed. Browser loading used the existing local-content mode because HTTP navigation was blocked; the separate Node HTTP asset check passed. No Safari/physical-phone, mobile-performance or fresh production verification is claimed.
+
+Remaining: the target art reference was not present among the supplied baseline screenshots. Building composition, bridge visibility through the buildings, foreground asymmetry/material polish and actor-route improvements await that reference/next checkpoint. Do not mark the full environment update ready for visual approval or bump PATCH until those required visual criteria are met.
+
 ## Normal development loop
 
 User request → inspect current relevant files/contracts → one focused change → targeted verification → check behavior when possible → increment PATCH for a completed user-visible iteration/fix → commit/push when appropriate → report actual version, checks, branch, commit and publication status. Keep the latest known-good playable commit as the rollback point for risky work. Commit/push authorization does not imply permission to merge or rewrite history.

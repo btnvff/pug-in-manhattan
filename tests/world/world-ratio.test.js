@@ -47,6 +47,60 @@ for (const o of objects) {
   assert.ok(o.d > 0);
   assert.ok(o.width > 0 && o.height > 0 && o.length > 0);
 }
+// Ground-only coverage: buildings must not conceal holes in block/corner floors.
+const Z = C.projection_calibration.pug_camera_depth;
+const avenue = objects.find(o => o.id === "avenue"), apron = objects.find(o => o.id === "apron");
+const farGround = avenue.d * Z + avenue.length / 2;
+const transition = R.depthAtGround(C.ground_regions.avenue_transition_v) * Z;
+const crossing = R.depthAtGround(C.ground_regions.intersection_end_v) * Z;
+const floors = objects.filter(o => o.kind === "box" && o.y + o.height / 2 >= 0 &&
+  o.y + o.height / 2 <= .08 && o.width >= .5 && o.length >= .5);
+const floorAt = (x, z) => floors.some(o =>
+  Math.abs(x - o.x) <= o.width / 2 + 1e-8 &&
+  Math.abs(z - o.d * Z) <= o.length / 2 + 1e-8);
+for (const z of [apron.d * Z, crossing - .01, crossing + .01,
+  transition - .01, transition + .01, transition + 2,
+  C.object_dimension_registry.near_building.depth * Z, 330.1, farGround - .01]) {
+  for (let i = 0; i <= 20; i++) {
+    const u = i / 20, x = (u - C.vanishing_u) * R.aspect * (z / Z) / C.pug_height_ratio;
+    assert.ok(floorAt(x, z), `Missing ground at visible u=${u}, world x=${x}, z=${z}`);
+  }
+}
+// Suspension cables must physically touch each tower head, not just share a label.
+const towers = objects.filter(o => o.role === "bridge-tower");
+const cables = objects.filter(o => o.kind === "rod" && o.role === "bridge-cable");
+assert.equal(towers.length, 4);
+assert.ok(cables.length > 0);
+for (const tower of towers) {
+  const head = tower.y + tower.height / 2;
+  assert.ok(cables.some(cable => [cable.a, cable.b].some(p =>
+    Math.abs(p[0] - tower.x) <= tower.width / 2 &&
+    Math.abs(p[1] - head) <= .1 &&
+    Math.abs(p[2] - tower.d * Z) <= tower.length / 2)),
+  `Cable misses tower head at x=${tower.x}, depth=${tower.d}`);
+}
+const decks = objects.filter(o => o.role === "bridge-deck");
+const deckY = C.ground_regions.bridge_deck_y;
+const towerDepths = towers.map(o => o.d * Z);
+const deckContains = (x, z) => decks.some(o =>
+  Math.abs(x - o.x) <= o.width / 2 && Math.abs(z - o.d * Z) <= o.length / 2);
+for (const z of [Math.min(...towerDepths), Math.max(...towerDepths),
+  (Math.min(...towerDepths) + Math.max(...towerDepths)) / 2]) {
+  for (const x of [0, ...new Set(towers.map(o => o.x))])
+    assert.ok(deckContains(x, z), "Continuous deck between tower planes");
+}
+for (const deck of decks) {
+  near(deck.y, deckY);
+  assert.ok(deck.y - deck.height / 2 > 0, "Elevated deck retains clearance");
+}
+const hangers = objects.filter(o => o.role === "bridge-hanger");
+assert.ok(hangers.length > 0);
+for (const hanger of hangers) {
+  assert.ok(deckContains(hanger.a[0], hanger.a[2]), "Hanger foot stays over the deck");
+  near(hanger.a[1], deckY + decks[0].height / 2);
+  assert.ok(cables.some(cable => [cable.a, cable.b].some(p =>
+    Math.hypot(...p.map((v, i) => v - hanger.b[i])) < 1e-7)), "Hanger meets a cable vertex");
+}
 // Grounded vehicle: wheels reach Y=0 and width clears a 2.5P lane.
 assert.ok(C.object_dimension_registry.taxi.width < C.road_dimensions.lane_width);
 assert.ok(C.object_dimension_registry.pedestrian.width < C.road_dimensions.sidewalk);
@@ -78,5 +132,5 @@ game.run("start(); tick(.03);");
 const before = game.snapshot();
 game.run("resize();resize();");
 assert.equal(game.snapshot(), before, "resize is raster-only");
-console.log("PASS: version fixture, full Three camera projection, world anchors, five viewport fits, uniform hero normalization, lane clearance, resize state invariance. Neutral aspect:", size.x / size.y);
+console.log("PASS: version fixture, full Three camera projection, world anchors, continuous ground/bridge deck and connected cables, five viewport fits, uniform hero normalization, lane clearance, resize state invariance. Neutral aspect:", size.x / size.y);
 hero.userData.dispose();
