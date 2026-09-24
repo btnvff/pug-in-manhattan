@@ -14,9 +14,9 @@ jobs:
       run:
         shell: bash
     env:
-      PHASE: review
+      PHASE: live
       BASE_SHA: 61388622768eddc05da158c318d66a3f72a28f83
-      EXPECTED_SHA: eb28df9bfc4317ec313bb0d3085d01c356c13842
+      EXPECTED_SHA: 41350649cf572b4bdb083a255928c9b197109b9d
       EXPECTED_TREE: f0e7b3057799037137abd3430b145dff73df9406
     steps:
       - uses: actions/checkout@v4
