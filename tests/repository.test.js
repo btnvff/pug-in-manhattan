@@ -17,7 +17,15 @@ function walk(folder) {
 }
 (async () => {
   const html = read("index.html");
-  const scripts = [...html.matchAll(/<script defer src="\.\/(.*?)"/g)].map((m) => m[1]);
+  const version = html.match(/id="build-version"[^>]*>v(\d+\.\d+\.\d+)<\/div>/)?.[1];
+  assert.ok(version, "visible revision uses major.minor.patch");
+  const scriptURLs = [...html.matchAll(/<script defer src="\.\/(.*?)"/g)].map((m) => m[1]);
+  const cssURL = html.match(/<link rel="stylesheet" href="\.\/(.*?)"/)?.[1];
+  for (const url of [...scriptURLs, cssURL]) {
+    assert.ok(url, "stylesheet and script URLs exist");
+    assert.equal(url.split("?")[1], "v=" + version, "CSS/JS cache keys match the visible revision");
+  }
+  const scripts = scriptURLs.map((url) => url.split(/[?#]/)[0]);
   assert.equal(new Set(scripts).size, scripts.length, "no duplicate script execution");
   assert.deepEqual([...scripts].sort(), walk("js").filter((f) => f.endsWith(".js")).sort(), "every JS module has an intentional script connection");
   assert.equal(scripts[0], "js/balance.js");
@@ -39,10 +47,11 @@ function walk(folder) {
   }
   const manifest = JSON.parse(read("manifest.webmanifest"));
   assert.equal(manifest.start_url, "./"); assert.equal(manifest.scope, "./");
-  const assets = [...new Set(["index.html", "js/vendor/three-LICENSE.txt",
+  const assetURLs = [...new Set(["index.html", "js/vendor/three-LICENSE.txt",
     ...[...html.matchAll(/(?:src|href)="\.\/(.*?)"/g)].map((m) => m[1]),
     ...manifest.icons.map((icon) => icon.src.replace(/^\.\//, "")),
   ])];
+  const assets = [...new Set(assetURLs.map((url) => url.split(/[?#]/)[0]))];
   for (const asset of assets) assert.ok(fs.statSync(path.join(root, asset)).isFile(), asset);
   for (const [file, size] of [["apple-touch-icon.png",180],["icon-192.png",192],["icon-512.png",512]]) {
     const data = fs.readFileSync(path.join(root,file));
@@ -70,8 +79,9 @@ function walk(folder) {
     assert.throws(() => buildPreview(out), /nonempty/, "do not overwrite arbitrary directories");
     server = await serveProject("/pug-in-manhattan/");
     const url = "http://127.0.0.1:" + server.address().port + "/pug-in-manhattan/";
-    for (const file of ["", ...assets]) {
-      const response = await fetch(url + file);
+    for (const assetURL of ["", ...assetURLs]) {
+      const file = assetURL.split(/[?#]/)[0];
+      const response = await fetch(url + assetURL);
       assert.equal(response.status,200,file);
       assert.deepEqual(Buffer.from(await response.arrayBuffer()),fs.readFileSync(path.join(root,file || "index.html")));
       if (file.endsWith(".js")) assert.match(response.headers.get("content-type"),/javascript/);
@@ -82,5 +92,5 @@ function walk(folder) {
     if (server) await new Promise((done) => server.close(done));
     fs.rmSync(directory,{recursive:true,force:true});
   }
-  console.log("PASS: script graph/syntax/DOM hooks, icons/manifest/vendor/license, local doc links, byte-exact export and HTTP assets under a Pages prefix.");
+  console.log("PASS: revision/cache-key consistency, script graph/syntax/DOM hooks, icons/manifest/vendor/license, local doc links, byte-exact export and HTTP assets under a Pages prefix.");
 })().catch((error) => { console.error(error); process.exitCode=1; });

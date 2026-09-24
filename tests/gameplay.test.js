@@ -9,7 +9,7 @@ function loadGame(ref, seed = 42, options = {}) {
   const read = (file) => ref
     ? execFileSync("git", ["show", ref + ":" + file], { cwd: root, encoding: "utf8" })
     : fs.readFileSync(path.join(root, file), "utf8");
-  const scripts = [...read("index.html").matchAll(/<script defer src="\.\/(.*?)"/g)].map((m) => m[1]);
+  const scripts = [...read("index.html").matchAll(/<script defer src="\.\/(.*?)"/g)].map((m) => m[1].split(/[?#]/)[0]);
   const nodes = new Map(), storage = new Map(), resizeListeners = [], warnings = [];
   const context = new Proxy({}, {
     get(target, key) {

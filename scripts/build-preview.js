@@ -10,7 +10,7 @@ function buildPreview(destination = dist) {
   const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
   const paths = [...new Set([
     "index.html", "js/vendor/three-LICENSE.txt",
-    ...[...html.matchAll(/(?:src|href)="\.\/(.*?)"/g)].map((match) => match[1]),
+    ...[...html.matchAll(/(?:src|href)="\.\/(.*?)"/g)].map((match) => match[1].split(/[?#]/)[0]),
     ...JSON.parse(fs.readFileSync(path.join(root, "manifest.webmanifest"), "utf8")).icons.map((icon) => icon.src.replace(/^\.\//, "")),
   ])];
   for (const file of paths) {

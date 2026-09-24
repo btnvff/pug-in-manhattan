@@ -4,6 +4,30 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { openBrowser, captureViews } = require("./browser-helpers");
+const expectedRevision = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8")
+  .match(/id="build-version"[^>]*>(v\d+\.\d+\.\d+)<\/div>/)[1];
+async function checkRevision(page) {
+  assert.equal(await page.locator("#build-version").textContent(), expectedRevision);
+  assert.ok(await page.locator("#build-version").isVisible(), "revision survives UI/view changes");
+  const layout = await page.evaluate(() => {
+    const badge = document.getElementById("build-version"), b = badge.getBoundingClientRect();
+    const game = document.getElementById("game").getBoundingClientRect();
+    const hints = ["hint", "rhythm"].map((id) => document.getElementById(id))
+      .filter((node) => node.textContent && getComputedStyle(node).display !== "none");
+    return {
+      center: Math.abs(b.left + b.width / 2 - game.left - game.width / 2),
+      inside: b.left >= game.left && b.right <= game.right && b.bottom <= game.bottom && b.top >= game.top,
+      bottomGap: (game.bottom - b.bottom) / (game.width / 390),
+      clear: hints.every((node) => node.getBoundingClientRect().bottom <= b.top),
+      passThrough: getComputedStyle(badge).pointerEvents === "none" &&
+        document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2) !== badge,
+    };
+  });
+  assert.ok(layout.center < 1 && layout.inside && layout.bottomGap >= 5 && layout.bottomGap <= 7,
+    "revision stays bottom-center inside the canonical/safe-area fit");
+  assert.ok(layout.clear, "revision does not overlap the drag hint or rhythm text");
+  assert.ok(layout.passThrough, "revision never intercepts touch/pointer input");
+}
 (async () => {
   const session = await openBrowser({ isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
   try {
@@ -20,8 +44,10 @@ const { openBrowser, captureViews } = require("./browser-helpers");
         await page.screenshot({ path: path.join(process.env.SCREENSHOT_DIR, name + ".png") });
       }
     };
+    await checkRevision(page);
     await capture("menu-3d");
     await page.getByRole("button", { name: "Старт", exact: true }).click();
+    await checkRevision(page);
     // Raw CDP touch exercises dragging; native mouse clicks exercise DOM controls.
     // Mixing CDP touch with Playwright tap can suppress Chromium's synthetic click.
     const cdp = await context.newCDPSession(page);
@@ -33,6 +59,7 @@ const { openBrowser, captureViews } = require("./browser-helpers");
     await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     await page.getByRole("button", { name: "Пауза", exact: true }).click();
     await page.waitForFunction(() => state === "pause", null, { polling: 50 });
+    await checkRevision(page);
     const paused = await page.evaluate(() => {
       const before = JSON.stringify([elapsed, items, powerTimers, x]);
       tick(0.04); render();
@@ -164,6 +191,7 @@ const { openBrowser, captureViews } = require("./browser-helpers");
     const canvasRun = await replay("2d");
     assert.deepEqual(threeRun, canvasRun, "2D/3D gameplay parity");
     assert.equal(await page.locator("#game").getAttribute("data-view"), "2d");
+    await checkRevision(page);
     await capture("play-2d");
     assert.equal(await page.evaluate(() => {
       pause(); frame(100); let paints=0;
@@ -175,15 +203,18 @@ const { openBrowser, captureViews } = require("./browser-helpers");
       await page.setViewportSize(size);
       await page.evaluate(() => { resize(); start(); render(); });
       assert.ok(await page.evaluate(() => cv.width > 0 && document.getElementById("scene-3d").width === cv.width));
+      await checkRevision(page);
       await capture("play-" + size.width + "x" + size.height);
     }
     await page.evaluate(() => { start(); collect({ type: 2 }); happy = 1; collect({ type: 8 }); render(); });
     assert.equal(await page.evaluate(() => state), "lose");
+    await checkRevision(page);
     await page.getByRole("button", { name: "Попробовать снова" }).click();
     assert.equal(await page.evaluate(() => points + items.length + durationBones), 0);
     await page.evaluate(() => document.getElementById("scene-3d").getContext("webgl2").getExtension("WEBGL_lose_context").loseContext());
     await page.waitForFunction(() => document.getElementById("game").dataset.view === "2d", null, { polling: 50 });
     assert.equal(await page.evaluate(() => state), "pause", "context loss pauses and falls back");
+    await checkRevision(page);
     await page.getByRole("button", { name: "Продолжить", exact: true }).click();
     await page.evaluate(() => { tick(1 / 60); render(); });
     const blocked = await context.newPage();
@@ -197,8 +228,9 @@ const { openBrowser, captureViews } = require("./browser-helpers");
     await blocked.goto(url);
     assert.equal(await blocked.locator("#game").getAttribute("data-view"), "2d");
     await blocked.evaluate(() => { start(); tick(1 / 60); render(); });
+    await checkRevision(blocked);
     assert.deepEqual(errors, [], "no browser exceptions");
-    console.log("PASS: WebGL startup, touch/keyboard, good/bad pickups, HUD, pause/blur/resume and paused resize, 9 food models, 17 effects, 2D/3D seeded parity and render purity, portrait/landscape resize, lose/restart, context loss and unavailable-WebGL fallbacks.");
+    console.log("PASS: persistent bottom-center revision and input pass-through, WebGL startup, touch/keyboard, good/bad pickups, HUD, pause/blur/resume and paused resize, 9 food models, 17 effects, 2D/3D seeded parity and render purity, portrait/landscape resize, lose/restart, context loss and unavailable-WebGL fallbacks.");
   } finally {
     await session.close();
   }

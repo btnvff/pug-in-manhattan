@@ -31,7 +31,7 @@ function serveProject(prefix = "/") {
 }
 function installOfflinePages(context, projectRoot = root) {
   const index = fs.readFileSync(path.join(projectRoot, "index.html"), "utf8");
-  const scripts = [...index.matchAll(/<script defer src="\.\/(.*?)"/g)].map((m) => m[1]);
+  const scripts = [...index.matchAll(/<script defer src="\.\/(.*?)"/g)].map((m) => m[1].split(/[?#]/)[0]);
   const html = index.replace(/<script[^>]*src="[^"]+"[^>]*><\/script>/g, "").replace(/<link[^>]*>/g, "");
   const newPage = context.newPage.bind(context);
   context.newPage = async (...args) => {
