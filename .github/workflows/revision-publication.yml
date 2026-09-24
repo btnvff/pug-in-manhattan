@@ -1,0 +1,71 @@
+name: Revision publication
+on:
+  push:
+    branches: [chatgpt/revision-publication]
+    paths: [.github/workflows/revision-publication.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  verify-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 2eac676e5461d69cfd6812cdce80b099a412294d
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Restore the exact locally reviewed revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_AUTHOR_DATE: '2026-09-24T11:13:20Z'
+          GIT_COMMITTER_DATE: '2026-09-24T11:13:20Z'
+        run: |
+          test "$(git rev-parse origin/main)" = 2eac676e5461d69cfd6812cdce80b099a412294d
+          gh api repos/btnvff/pug-in-manhattan/git/blobs/8d4e42b8afa4f2005ce93f255c9963b1fc7990c3 --jq .content | base64 --decode > "$RUNNER_TEMP/revision.patch"
+          test "$(git hash-object "$RUNNER_TEMP/revision.patch")" = 8d4e42b8afa4f2005ce93f255c9963b1fc7990c3
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          p = Path(os.environ['RUNNER_TEMP']) / 'revision.patch'
+          p.write_text(p.read_text().replace('\n diff --git ', '\ndiff --git '))
+          PY
+          git checkout -b chatgpt/revision-badge
+          git apply --unidiff-zero --index "$RUNNER_TEMP/revision.patch"
+          git diff --cached --check
+          test "$(git write-tree)" = 363cad86684d7257d06858945c2096493d306542
+          git -c user.name=btnvff -c user.email=130178310+btnvff@users.noreply.github.com commit -m 'feat: show revision v0.0.1 at bottom center with matching asset cache keys'
+          test "$(git rev-parse HEAD)" = 5e307ff5566caf88dc3cf4a238324e463cc1b99f
+      - name: Install external browser test tools
+        run: |
+          python -m pip install --target "$RUNNER_TEMP/browser-tools" playwright==1.57.0
+          export PYTHONPATH="$RUNNER_TEMP/browser-tools"
+          python -m playwright install --with-deps chromium
+          echo "PLAYWRIGHT_MODULE=$(python -c 'import playwright, pathlib; print(pathlib.Path(playwright.__file__).parent / "driver/package")')" >> "$GITHUB_ENV"
+          echo "CHROMIUM_PATH=$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')" >> "$GITHUB_ENV"
+      - name: All Node and real HTTP browser suites plus exact gameplay parity
+        env:
+          SCREENSHOT_DIR: ${{ runner.temp }}/revision-checks/screenshots
+        run: |
+          mkdir -p "$RUNNER_TEMP/revision-checks"
+          xvfb-run -a node tests/run.js --all | tee "$RUNNER_TEMP/revision-checks/tests.log"
+          node tests/gameplay.test.js --compare 2eac676e5461d69cfd6812cdce80b099a412294d | tee "$RUNNER_TEMP/revision-checks/parity.log"
+          git diff --check
+          test -z "$(git status --porcelain)"
+      - name: Push feature branch without force
+        run: |
+          git fetch origin
+          test "$(git rev-parse origin/main)" = 2eac676e5461d69cfd6812cdce80b099a412294d
+          git push -u origin chatgpt/revision-badge
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: revision-badge-checks
+          path: ${{ runner.temp }}/revision-checks
+          retention-days: 7
