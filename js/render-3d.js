@@ -1,12 +1,12 @@
-// Orthographic projection keeps (x, y) exactly aligned with existing hit detection.
-// Models have depth and lighting; the simulation retains its original pixel units.
+// WORLD uses the calibrated perspective camera. GAMEPLAY_PLANE is rendered at
+// fixed depth with an orthographic presentation camera; simulation stays read-only.
 function createThreeView() {
   const T = window.THREE;
   if (!T) throw new Error("Three.js did not load");
   const canvas = document.createElement("canvas");
   canvas.id = "scene-3d";
   canvas.setAttribute("aria-hidden", "true");
-  let renderer, model, hero, scene, camera, world = null, disposed = false;
+  let renderer, model, hero, scene, camera, worldScene, worldCamera, world = null, disposed = false;
   const visuals = new Map(), spare = new Map();
   let seen = new Set();
   function dispose() {
@@ -17,7 +17,8 @@ function createThreeView() {
     world?.dispose();
     hero?.userData.dispose();
     model?.dispose();
-    visuals.clear(); spare.clear(); seen.clear(); scene?.clear();
+    visuals.clear(); spare.clear(); seen.clear(); scene?.clear(); worldScene?.clear();
+    if (window.ratioReview?.renderer === renderer) delete window.ratioReview;
     renderer?.dispose();
     renderer?.forceContextLoss();
     canvas.remove();
@@ -41,16 +42,26 @@ function createThreeView() {
     renderer.toneMapping = T.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.06;
     scene = new T.Scene();
-    scene.background = new T.Color("#72bde2");
-    camera = new T.OrthographicCamera(-W / 2, W / 2, H / 2, -H / 2, 1, 2400);
-    camera.position.z = 1000;
+    worldScene = new T.Scene();
+    worldScene.background = new T.Color("#a8cddd");
+    worldScene.fog = new T.Fog("#b4ced5",90,360);
+    worldCamera = WorldRatio.camera(T);
+    camera = new T.OrthographicCamera(-WorldRatio.aspect/.32, WorldRatio.aspect/.32, 5.5, -.75, 1, 200);
+    camera.position.z = 100;
     scene.add(new T.HemisphereLight("#e3f4ff", "#797168", 1.65));
     const sun = new T.DirectionalLight("#ffdfad", 2.35);
     sun.position.set(-250, 500, 650); scene.add(sun);
     const fill = new T.DirectionalLight("#bee2ff", 1.05);
     fill.position.set(300, 100, 300); scene.add(fill);
     model = createModelFactory();
-    hero = model.pugModel(); scene.add(hero);
+    hero = model.pugModel(); hero.userData.space = "GAMEPLAY_PLANE"; scene.add(hero);
+    animatePugModel(hero,{time:0,state:"play"});
+    const neutral = WorldRatio.bounds(hero,T);
+    hero.userData.ratioNormalization = {height:neutral.max.y-neutral.min.y, centerX:(neutral.min.x+neutral.max.x)/2, ground:neutral.min.y};
+    for(const light of scene.children.filter(o=>o.isLight))worldScene.add(light.clone());
+    world = createRatioWorld(model);worldScene.add(world.root);
+    renderer.autoClear = false;
+    window.ratioReview = { worldScene, worldCamera, camera, hero, world, renderer };
   } catch (error) {
     dispose();
     throw error;
@@ -59,7 +70,8 @@ function createThreeView() {
   const catMouth = new T.Vector3();
   let worldWidth = 0, worldHeight = 0;
   function place(object, px, py, z = 0) {
-    object.position.set(px - W / 2, H / 2 - py, z);
+    object.position.set((RatioPresentation.px(px)/600-.5)*WorldRatio.aspect/.16, (.88-RatioPresentation.py(py)/1125)/.16, z/100);
+    object.userData.space = "GAMEPLAY_PLANE";
   }
   function visual(key, kind, build) {
     seen.add(key);
@@ -75,14 +87,14 @@ function createThreeView() {
   function foodVisual(key, type, variant, px, py, angle = 0, scale = 1, z = 50) {
     const mesh = visual(key, "food:" + type + ":" + (variant % 8), () => model.foodModel(type, variant));
     place(mesh, px, py, z);
-    mesh.scale.setScalar(scale);
+    mesh.scale.setScalar(scale * RatioPresentation.foodScale);
     mesh.rotation.set(0.20, Math.sin(clock * 0.7 + variant) * 0.16, -angle);
     return mesh;
   }
   function catVisual(key, coat, px, py, direction, size, time, running, pickup = 0, toss = 0) {
     const mesh = visual(key, "cat:" + coat, () => model.catModel(coat));
     place(mesh, px, py, 15);
-    mesh.scale.set(size * direction, size, size);
+    mesh.scale.set(size * direction * RatioPresentation.heroScale, size * RatioPresentation.heroScale, size * RatioPresentation.heroScale);
     mesh.rotation.z = 0;
     const rig = mesh.userData, stride = time * 14;
     rig.spine.position.y = 17 + (running ? Math.sin(stride * 2) * 1.1 : Math.sin(time * 2.4) * .35) - pickup * 2;
@@ -101,16 +113,18 @@ function createThreeView() {
   }
   function birdVisual(key, px, py, direction, size, time, flying = true) {
     const mesh = visual(key, "bird", model.birdModel);
-    place(mesh, px, py, 35); mesh.scale.set(size * direction, size, size);
+    place(mesh, px, py, 35); mesh.scale.set(size * direction * RatioPresentation.heroScale, size * RatioPresentation.heroScale, size * RatioPresentation.heroScale);
     mesh.userData.wings.forEach((wing, i) => wing.rotation.z = flying ? Math.sin(time * 22) * (i ? 1 : -1) * 0.7 : 0);
   }
   function animateHeroModel() {
     const landscape = W > 550;
     const menuMode = state === "menu";
-    const hx = menuMode ? W / 2 : landscape && (state === "win" || state === "lose") ? W * 0.25 : x;
+    const hx = ratioMode === "reference" || ratioMode === "blockout" ? W * PUG_WORLD_RATIO.reference_pug_u : x;
     const hy = ground();
     const scale = heroScale();
-    place(hero, hx, hy, 20); hero.scale.setScalar(scale);
+    place(hero, hx, hy, 20); hero.scale.setScalar(1 / hero.userData.ratioNormalization.height);
+    hero.position.x -= hero.userData.ratioNormalization.centerX * hero.scale.x;
+    hero.position.y -= hero.userData.ratioNormalization.ground * hero.scale.y;
     // Read-only presentation signals; collision/input and their smoothing stay unchanged.
     heroSignal.time = clock;
     heroSignal.state = state;
@@ -130,14 +144,15 @@ function createThreeView() {
     heroSignal.chewTime = chewTime;
     heroSignal.reactionDuration = BALANCE.feedback.reaction;
     heroSignal.chewDuration = BALANCE.feedback.chew;
-    animatePugModel(hero, heroSignal);
+    animatePugModel(hero, ratioMode === "reference" || ratioMode === "blockout" ? {time:0,state:"play"} : heroSignal);
+    hero.visible = ratioMode !== "blockout";
   }
   function render() {
     seen = new Set();
-    world.animate(worldTime);
+    world.animate(ratioMode === "reference" || ratioMode === "blockout" ? 0 : worldTime);
     animateHeroModel();
     if (state === "menu") {
-      if (W <= 550) {
+      if (W <= 550 && !ratioMode) {
         foodVisual("menu-left", 0, 0, W * 0.17, H * 0.48, -0.4);
         foodVisual("menu-donut", 3, 0, W * 0.82, H * 0.44, 0.2);
         foodVisual("menu-right", 0, 2, W * 0.8, H * 0.59, 0.5);
@@ -160,8 +175,8 @@ function createThreeView() {
         const pickup = Math.sin(clamp((cat.t - t.arrival) / (t.leave - t.arrival), 0, 1) * Math.PI);
         const mesh = catVisual(cat, cat.coat, px, landingY() + 12, direction, 1.1, cat.t, (cat.t > t.wait && cat.t < t.arrival) || cat.t > t.leave, pickup);
         mesh.userData.mouthAnchor.getWorldPosition(catMouth);
-        foodVisual(catFoodKey(cat), 0, cat.variant, cat.t < t.pickup ? cat.x : catMouth.x + W / 2,
-          cat.t < t.pickup ? landingY() : H / 2 - catMouth.y, cat.t < t.pickup ? .2 : .7, cat.t < t.pickup ? 1 : 0.45);
+        foodVisual(catFoodKey(cat), 0, cat.variant, cat.t < t.pickup ? cat.x : (catMouth.x * .16 / WorldRatio.aspect + .5) * W,
+          cat.t < t.pickup ? landingY() : RatioPresentation.logicalY((.88 - catMouth.y * .16) * 1125), cat.t < t.pickup ? .2 : .7, cat.t < t.pickup ? 1 : 0.45);
       }
       for (const flock of flocks) {
         const t = flock.t, departure = 1.85;
@@ -199,8 +214,12 @@ function createThreeView() {
       const pool = spare.get(record.kind);
       if (pool.length < BALANCE.spawning.eventMaxItems) pool.push(record.mesh);
     }
+    renderer.clear();
+    renderer.render(worldScene, worldCamera);
+    renderer.clearDepth();
     renderer.render(scene, camera);
-    ctx.clearRect(0, 0, W, H);
+    clearRatioCanvas();
+    beginRatioFeedback();
     if (state !== "menu") {
       drawPowerAura(); drawRunFeedback(); drawEventFeedback();
       for (const item of items) {
@@ -211,6 +230,7 @@ function createThreeView() {
     }
     drawFloatingFeedback();
     drawVictoryFeedback();
+    drawRatioDiagnostics();
   }
   // Weak keys add no properties to gameplay objects and expire with each run.
   const attachedKeys = new WeakMap();
@@ -221,17 +241,9 @@ function createThreeView() {
   function catFoodKey(cat) { return flockKey(cat, 0); }
   function resize() {
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, BALANCE.frame.maxDpr));
-    renderer.setSize(W, H, false);
-    camera.left = -W / 2; camera.right = W / 2;
-    camera.top = H / 2; camera.bottom = -H / 2;
-    camera.updateProjectionMatrix();
-    if (worldWidth !== W || worldHeight !== H) {
-      if (world) { scene.remove(world.root); world.dispose(); world = null; }
-      const scale = Math.min(1, H / 700);
-      world = createThreeWorld(model, W / scale, H / scale);
-      world.root.scale.setScalar(scale);
-      worldWidth = W; worldHeight = H; scene.add(world.root);
-    }
+    const rect=cv.getBoundingClientRect();
+    renderer.setSize(rect.width, rect.height, false);
+
   }
   try {
     canvas.addEventListener("webglcontextlost", onContextLost);

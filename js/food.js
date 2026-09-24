@@ -1,6 +1,7 @@
 function drawFood(type, x, y, a = 0, variant = 0) {
   ctx.save();
   ctx.translate(x, y);
+  ctx.scale(RatioPresentation.unit / (600 / 390), 1);
   ctx.rotate(a);
   ctx.shadowColor = "#3f382c28";
   ctx.shadowBlur = 3;
