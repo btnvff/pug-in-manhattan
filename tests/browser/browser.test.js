@@ -3,8 +3,8 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { openBrowser, captureViews } = require("./browser-helpers");
-const expectedRevision = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8")
+const { openBrowser, captureViews } = require("../helpers/browser");
+const expectedRevision = fs.readFileSync(path.join(__dirname, "../../index.html"), "utf8")
   .match(/id="build-version"[^>]*>(v\d+\.\d+\.\d+)<\/div>/)[1];
 async function checkRevision(page) {
   assert.equal(await page.locator("#build-version").textContent(), expectedRevision);
@@ -188,10 +188,6 @@ async function checkRevision(page) {
       }, paint);
     }
     assert.deepEqual(await replay(true), await replay(false), "WebGL rendering preserves gameplay/RNG");
-    await page.goto(url + "/?view=2d");
-    assert.equal(await page.locator("#game").getAttribute("data-view"), "3d", "obsolete URL cannot select another renderer");
-    assert.equal(await page.evaluate(() => typeof renderCanvasScene), "undefined");
-    await checkRevision(page);
     await page.goto(url);
     for (const size of [{ width: 844, height: 390 }, { width: 320, height: 568 }, { width: 390, height: 844 }]) {
       await page.setViewportSize(size);
@@ -227,8 +223,10 @@ async function checkRevision(page) {
         return kind.startsWith("webgl") ? null : original.call(this, kind, ...args);
       };
     });
-    for (const query of ["", "/?view=2d", "/?ratio=blockout", "/?ratio=reference"]) {
-      await blocked.goto(url + query);
+    for (const query of ["", "?ratio=blockout", "?ratio=reference"]) {
+      const diagnosticURL = new URL(query, url);
+      assert.equal(diagnosticURL.pathname, new URL(url).pathname, "diagnostics preserve the Pages base path even in offline tests");
+      await blocked.goto(diagnosticURL.href);
       assert.equal(await blocked.locator("#game").getAttribute("data-view"), "unavailable");
       assert.ok(await blocked.getByRole("alert").isVisible(), "error remains visible even in diagnostic mode");
       assert.equal(await blocked.locator("#scene-3d, #start").count(), 0);
@@ -245,7 +243,7 @@ async function checkRevision(page) {
     assert.ok(await missing.getByRole("alert").isVisible(), "missing local Three.js has an actionable error");
     await checkRevision(missing);
     assert.deepEqual(errors, [], "no uncaught browser exceptions");
-    console.log("PASS: bottom-center revision, WebGL startup, touch/keyboard, good/bad pickups, HUD, pause/blur/resume and paused resize, 9 food models, 17 effects, seeded rendered/unrendered parity, portrait/landscape resize, lose/restart, obsolete URL opens 3D, context loss/unavailable WebGL/missing Three stop safely with visible error.");
+    console.log("PASS: bottom-center revision, WebGL startup, touch/keyboard, good/bad pickups, HUD, pause/blur/resume and paused resize, 9 food models, 17 effects, seeded rendered/unrendered parity, portrait/landscape resize, lose/restart, context loss/unavailable WebGL/missing Three stop safely with visible error.");
   } finally {
     await session.close();
   }

@@ -3,7 +3,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { openBrowser, captureViews } = require("./browser-helpers");
+const { openBrowser, captureViews } = require("../helpers/browser");
 (async () => {
   const session = await openBrowser({ deviceScaleFactor: 2 });
   try {

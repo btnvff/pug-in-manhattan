@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const { execFileSync } = require("node:child_process");
-const root = path.join(__dirname, "..");
+const root = path.join(__dirname, "../..");
 function loadGame(ref, seed = 42, options = {}) {
   const read = (file) => ref
     ? execFileSync("git", ["show", ref + ":" + file], { cwd: root, encoding: "utf8" })
@@ -32,17 +32,17 @@ function loadGame(ref, seed = 42, options = {}) {
   const sandbox = {
     innerWidth:390,innerHeight:844,getComputedStyle:()=>({paddingLeft:0,paddingRight:0,paddingTop:0,paddingBottom:0}), Math: math, console: { ...console, warn: (...args) => warnings.push(args) }, URLSearchParams, location: { search: options.search ?? "" },
     document: {
-      hidden: false, body: element(), querySelectorAll: () => [], addEventListener() {}, createElement: element,
+      hidden: false, removeEventListener() {}, body: element(), querySelectorAll: () => [], addEventListener() {}, createElement: element,
       getElementById(id) { if (!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); },
     },
-    window: { addEventListener(type, listener) { if (type === "resize") resizeListeners.push(listener); } }, navigator: {}, devicePixelRatio: 2,
+    window: { removeEventListener() {}, addEventListener(type, listener) { if (type === "resize") resizeListeners.push(listener); } }, navigator: {}, devicePixelRatio: 2,
     localStorage: { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
-    requestAnimationFrame() {}, Path2D: class {},
+    requestAnimationFrame() {}, cancelAnimationFrame() {}, performance, Path2D: class {},
   };
   vm.createContext(sandbox);
   for (const file of scripts) {
     if (file.includes("vendor/") && !options.rendererDouble) continue;
-    if (file === "js/render.js" && !options.rendererDouble)
+    if (file === scripts.at(-1) && !options.rendererDouble)
       vm.runInContext("createThreeView = () => ({render() {}, resize() {}, dispose() {}})", sandbox);
     vm.runInContext(read(file), sandbox, { filename: file });
     if (file.includes("vendor/") && options.rendererDouble) {
@@ -89,10 +89,10 @@ function mechanics(game) {
   run("menu(); render()");
   assert.equal(run("state"), "menu");
 }
-function simulate(game) {
+function simulate(game, seconds = 120) {
   game.run("prefs.sound=false; start()");
   const checkpoints = [];
-  for (let block = 0; block < 120; block++) {
+  for (let block = 0; block < seconds; block++) {
     game.run(`
       for (let i = 0; i < 60; i++) {
         if (state !== 'play') start();
@@ -114,15 +114,18 @@ if (require.main === module) {
   mechanics(loadGame());
   const index = process.argv.indexOf("--compare");
   if (index >= 0 && !process.argv[index + 1]) throw new Error("--compare requires a Git ref");
+  const secondsIndex = process.argv.indexOf("--seconds");
+  const seconds = secondsIndex < 0 ? 120 : Number(process.argv[secondsIndex + 1]);
+  assert.ok(Number.isInteger(seconds) && seconds > 0 && seconds <= 3600, "--seconds must be 1..3600");
   for (const seed of [42, 123, 2026]) {
-    const game = loadGame(null, seed), current = simulate(game);
+    const game = loadGame(null, seed), current = simulate(game, seconds);
     if (index >= 0) {
-      const oldGame = loadGame(process.argv[index + 1], seed), previous = simulate(oldGame);
+      const oldGame = loadGame(process.argv[index + 1], seed), previous = simulate(oldGame, seconds);
       assert.deepEqual(current, previous, "gameplay differs from reference");
       assert.equal(game.seed(), oldGame.seed(), "presentation cannot shift future gameplay RNG");
     }
   }
-  console.log("PASS: scoring, shield, bones, pause, jam, lose/restart, all powers; 3 seeded 120-second runs; render purity" +
+  console.log("PASS: scoring, shield, bones, pause, jam, lose/restart, all powers; 3 seeded " + seconds + "-second runs; render purity" +
     (index >= 0 ? "; " + "identical to " + process.argv[index + 1] : ""));
 }
 module.exports = { loadGame };

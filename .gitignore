@@ -1,2 +1,28 @@
-dist/
-.sites-runtime/
+# Optional static export and local runtimes
+/dist/
+/.sites-runtime/
+/node_modules/
+/.venv/
+
+# Local test output, browser state and caches (fixtures remain tracked)
+/test-results/
+/playwright-report/
+/screenshots/
+/checks/
+/browser-profile/
+/.cache/
+__pycache__/
+*.log
+*.tmp
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.bundle
+*.patch
+
+# Editor/system files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

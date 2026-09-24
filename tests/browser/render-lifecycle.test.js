@@ -1,7 +1,7 @@
 // Real DOM/WebGL fault injection, independent of source-loading transport.
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { openBrowser, captureViews } = require("./browser-helpers");
+const { openBrowser, captureViews } = require("../helpers/browser");
 (async () => {
   const session = await openBrowser({ deviceScaleFactor: 2 });
   try {
@@ -129,7 +129,7 @@ const { openBrowser, captureViews } = require("./browser-helpers");
         return { frozen: before === runSnapshot() && time === JSON.stringify([clock, worldTime]),
           scheduled, view: document.getElementById("game").dataset.view };
       }, fault);
-      assert.deepEqual(stopped, { frozen: true, scheduled: 0, view: "unavailable" }, fault + ": game/RAF stop, no hidden fallback or retry loop");
+      assert.deepEqual(stopped, { frozen: true, scheduled: 0, view: "unavailable" }, fault + ": game/RAF stop, no hidden retry loop");
       assert.deepEqual(await page.evaluate(() => lifecycleSnapshot()), metrics, fault + ": no double disposal or reallocation");
     }
     assert.deepEqual(errors, [], "faults are contained, with no uncaught browser exceptions");
