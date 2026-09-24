@@ -3,12 +3,12 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const root = path.join(__dirname, "..");
+const root = path.join(__dirname, "../..");
 const math = Object.create(Math);
 math.random = () => { throw new Error("Character art consumed gameplay randomness"); };
 const sandbox = { window: {}, Math: math, console };
 vm.createContext(sandbox);
-for (const file of ["js/vendor/three-r185.js", "js/pug-3d.js", "js/pug-animation.js", "js/models-3d.js"])
+for (const file of ["js/vendor/three-r185.js", "js/character/pug-3d.js", "js/character/pug-animation.js", "js/world/models-3d.js"])
   vm.runInContext(fs.readFileSync(path.join(root, file), "utf8"), sandbox, { filename: file });
 const T = sandbox.window.THREE;
 const factory = sandbox.createModelFactory();

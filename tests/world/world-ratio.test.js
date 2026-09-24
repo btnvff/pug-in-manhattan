@@ -1,12 +1,12 @@
 const assert = require("node:assert/strict"), fs = require("node:fs"), vm = require("node:vm"), path = require("node:path");
-const root = path.join(__dirname, ".."), s = { window: {}, console, URLSearchParams, location: { search: "" } };
+const root = path.join(__dirname, "../.."), s = { window: {}, console, URLSearchParams, location: { search: "" } };
 vm.createContext(s);
-for (const name of ["vendor/three-r185", "world-ratio", "pug-3d", "pug-animation", "models-3d", "ratio-scene"])
+for (const name of ["vendor/three-r185", "world/world-ratio", "character/pug-3d", "character/pug-animation", "world/models-3d", "world/ratio-scene"])
   vm.runInContext(fs.readFileSync(path.join(root, "js", name + ".js"), "utf8"), s);
 const get = x => vm.runInContext(x, s), T = s.window.THREE, C = get("PUG_WORLD_RATIO"), R = get("WorldRatio");
 const near = (a, b, e = 1e-7) => assert.ok(Math.abs(a - b) < e, `${a} != ${b}`);
-assert.equal(require("node:crypto").createHash("sha256").update(fs.readFileSync(path.join(__dirname, "fixtures/ratio-1.0.0.json"))).digest("hex"), "dffdef4b1fee99408efa5b7ce16dcab5605c9ef3144bb3afcaf8416142925cc9", "Retained 1.0.0 fixture cannot be silently rewritten");
-const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures/ratio-1.0.0.json"), "utf8"));
+assert.equal(require("node:crypto").createHash("sha256").update(fs.readFileSync(path.join(__dirname, "../fixtures/ratio-1.0.0.json"))).digest("hex"), "dffdef4b1fee99408efa5b7ce16dcab5605c9ef3144bb3afcaf8416142925cc9", "Retained 1.0.0 fixture cannot be silently rewritten");
+const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, "../fixtures/ratio-1.0.0.json"), "utf8"));
 assert.deepEqual(JSON.parse(JSON.stringify(C)), fixture, "Ratio contract requires a new version and retained fixture");
 for (const [d, v] of [[1, .88], [2, .76], [4, .70], [8, .67]]) {
   near(R.project(0, 0, d).v, v);
@@ -72,7 +72,7 @@ for (const x of [0, 49, 195, 341, 390])
   near(adapter.logicalX(adapter.worldX(x)), x);
 for (const y of [-100, 0, 350, 668, 753, 844, 924])
   near(adapter.fromWorldY(adapter.worldY(y)), y);
-const { loadGame } = require("./gameplay.test");
+const { loadGame } = require("../game/gameplay.test");
 const game = loadGame();
 game.run("start(); tick(.03);");
 const before = game.snapshot();

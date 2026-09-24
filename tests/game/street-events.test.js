@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { loadGame } = require("./gameplay.test");
+const { loadGame } = require("../game/gameplay.test");
 const game = loadGame(), { run } = game;
 for (let type = 0; type < 9; type++) {
   run(`prefs.sound=false; start(); spawnIn=999; points=20; x=330;

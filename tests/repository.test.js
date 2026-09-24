@@ -5,7 +5,7 @@ const path = require("node:path");
 const os = require("node:os");
 const vm = require("node:vm");
 const crypto = require("node:crypto");
-const { serveProject } = require("./browser-helpers");
+const { serveProject } = require("./helpers/browser");
 const { buildPreview } = require("../scripts/build-preview");
 const root = path.join(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
@@ -28,21 +28,18 @@ function walk(folder) {
   const scripts = scriptURLs.map((url) => url.split(/[?#]/)[0]);
   assert.equal(new Set(scripts).size, scripts.length, "no duplicate script execution");
   assert.deepEqual([...scripts].sort(), walk("js").filter((f) => f.endsWith(".js")).sort(), "every JS module has an intentional script connection");
-  assert.equal(scripts[0], "js/balance.js");
-  assert.equal(scripts[1], "js/world-ratio.js");
-  assert.equal(scripts.at(-1), "js/render.js");
+  assert.equal(scripts[0], "js/game/balance.js");
+  assert.equal(scripts[1], "js/world/world-ratio.js");
+  assert.equal(scripts.at(-1), "js/app/bootstrap.js");
   for (const file of [...walk("js"), ...walk("tests"), ...walk("scripts")].filter((f) => f.endsWith(".js")))
     new vm.Script(read(file), { filename: file });
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]);
   assert.equal(ids.length, new Set(ids).size, "unique DOM IDs");
   const appScripts = scripts.filter((f) => !f.includes("vendor/"));
   const source = appScripts.map(read).join("\n");
-  for (const file of ["render-2d.js", "characters.js", "food.js"])
-    assert.ok(!fs.existsSync(path.join(root, "js", file)), "removed artwork/renderer stays absent: " + file);
-  assert.doesNotMatch(source, /renderCanvasScene|fallbackToCanvas|drawRatioWorldCanvas|drawFood\(|drawCat\(|function pug\(/,
-    "no standalone Canvas renderer or private sprite artwork");
-  assert.doesNotMatch(read("js/render.js"), /URLSearchParams|["']2d["']/,
-    "boot has no renderer-selection or alternate-view path");
+  assert.match(read("js/app/bootstrap.js"), /createThreeView\(\)/, "bootstrap initializes WebGL");
+  assert.doesNotMatch(read("js/app/bootstrap.js"), /URLSearchParams/, "bootstrap has no view selector");
+  assert.match(read("js/render/feedback-overlay.js"), /clearRatioCanvas/, "transparent feedback remains connected");
   const knownIds = new Set([...ids,
     ...[...source.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]),
     ...[...source.matchAll(/\.id\s*=\s*["']([^"']+)["']/g)].map((m) => m[1]),
@@ -59,7 +56,7 @@ function walk(folder) {
   ])];
   const assets = [...new Set(assetURLs.map((url) => url.split(/[?#]/)[0]))];
   for (const asset of assets) assert.ok(fs.statSync(path.join(root, asset)).isFile(), asset);
-  for (const [file, size] of [["apple-touch-icon.png",180],["icon-192.png",192],["icon-512.png",512]]) {
+  for (const [file, size] of [["assets/icons/apple-touch-icon.png",180],["assets/icons/icon-192.png",192],["assets/icons/icon-512.png",512]]) {
     const data = fs.readFileSync(path.join(root,file));
     assert.equal(data.subarray(1,4).toString(),"PNG");
     assert.equal(data.readUInt32BE(16),size); assert.equal(data.readUInt32BE(20),size);

@@ -3,22 +3,23 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const http = require("node:http");
-const root = path.join(__dirname, "..");
+const root = path.join(__dirname, "../..");
 const contentTypes = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8", ".png": "image/png",
   ".webmanifest": "application/manifest+json", ".json": "application/json",
   ".txt": "text/plain; charset=utf-8", ".md": "text/plain; charset=utf-8",
 };
-function serveProject(prefix = "/") {
+function serveProject(prefix = "/", projectRoot = root) {
+  projectRoot = path.resolve(projectRoot);
   const server = http.createServer((request, response) => {
     let pathname;
     try { pathname = decodeURIComponent(new URL(request.url, "http://localhost").pathname); }
     catch { response.writeHead(400).end(); return; }
     if (!pathname.startsWith(prefix)) { response.writeHead(404).end(); return; }
     const relative = pathname.slice(prefix.length) || "index.html";
-    const file = path.resolve(root, relative);
-    if (!file.startsWith(root + path.sep)) { response.writeHead(403).end(); return; }
+    const file = path.resolve(projectRoot, relative);
+    if (!file.startsWith(projectRoot + path.sep)) { response.writeHead(403).end(); return; }
     try {
       response.setHeader("Content-Type", contentTypes[path.extname(file)] || "application/octet-stream");
       response.end(fs.readFileSync(file));
@@ -47,26 +48,32 @@ function installOfflinePages(context, projectRoot = root) {
     return page;
   };
 }
-async function openBrowser(options = {}) {
+async function openBrowser(options = {}, settings = {}) {
+  const projectRoot = settings.projectRoot || root;
+  const externalURL = settings.url || process.env.TEST_BASE_URL;
+  if (externalURL && process.env.OFFLINE_BROWSER === "1")
+    throw new Error("Live URL verification cannot use offline loading");
   const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
-  const server = await serveProject();
+  const server = externalURL ? null : await serveProject("/pug-in-manhattan/", projectRoot);
   let browser;
   try {
     browser = await chromium.launch({
       executablePath: process.env.CHROMIUM_PATH || undefined, headless: true,
-      args: ["--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
+      args: ["--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
+        ...(settings.cpuRaster ? ["--disable-gpu-rasterization"] : [])],
     });
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ...options });
-    if (process.env.OFFLINE_BROWSER === "1") installOfflinePages(context);
-    await context.addInitScript(() => { window.requestAnimationFrame = () => 1; });
+    if (process.env.OFFLINE_BROWSER === "1") installOfflinePages(context, projectRoot);
+    if (settings.freezeFrames !== false)
+      await context.addInitScript(() => { window.requestAnimationFrame = () => 1; });
     console.log("Browser transport:", process.env.OFFLINE_BROWSER === "1" ? "local content (not HTTP)" : "HTTP");
     return {
-      browser, context, url: "http://127.0.0.1:" + server.address().port,
-      async close() { try { await browser.close(); } finally { await new Promise((done) => server.close(done)); } },
+      browser, context, url: externalURL || "http://127.0.0.1:" + server.address().port + "/pug-in-manhattan/",
+      async close() { try { await browser.close(); } finally { if (server) await new Promise((done) => server.close(done)); } },
     };
   } catch (error) {
     try { if (browser) await browser.close(); }
-    finally { await new Promise((done) => server.close(done)); }
+    finally { if (server) await new Promise((done) => server.close(done)); }
     throw error;
   }
 }

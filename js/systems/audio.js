@@ -7,6 +7,8 @@ const audioSystem = {
   street: null,
   fx: null,
   noise: null,
+  nodes: new Set(),
+  retiring: new Set(),
   voices: new Set(),
   bed: new Set(),
   mode: "menu",
@@ -18,19 +20,22 @@ const audioSystem = {
   lastEffect: Object.create(null),
 };
 function unlockAudio() {
-  if (!prefs.sound) return;
+  if (!prefs.sound || graphicsUnavailable) return;
+  let creating = false;
   try {
     if (!audioSystem.context) {
       const Constructor = window.AudioContext || window.webkitAudioContext;
       if (!Constructor) return;
+      creating = true;
       const context = new Constructor();
       audioSystem.context = context;
-      const master = context.createGain(),
-        music = context.createGain(),
-        ambience = context.createGain(),
-        street = context.createGain(),
-        fx = context.createGain();
-      const compressor = context.createDynamicsCompressor();
+      const own = (node) => { audioSystem.nodes.add(node); return node; };
+      const master = own(context.createGain()),
+        music = own(context.createGain()),
+        ambience = own(context.createGain()),
+        street = own(context.createGain()),
+        fx = own(context.createGain());
+      const compressor = own(context.createDynamicsCompressor());
       compressor.threshold.value = -16;
       compressor.knee.value = 18;
       compressor.ratio.value = 3;
@@ -72,8 +77,25 @@ function unlockAudio() {
     }
     syncAudioPreference();
   } catch {
-    /* Unsupported audio must never stop the game. */
+    // A partially constructed graph must not survive the next gesture retry.
+    if (creating) disposeAudio();
   }
+}
+function disposeAudio() {
+  const a = audioSystem, context = a.context;
+  for (const voice of [...a.voices, ...a.retiring]) {
+    try { voice.source.stop(); } catch {}
+    voice.release();
+  }
+  a.voices.clear();
+  a.retiring.clear();
+  a.bed.clear();
+  for (const node of a.nodes) { try { node.disconnect(); } catch {} }
+  a.nodes.clear();
+  Object.assign(a, { context: null, master: null, music: null, ambience: null,
+    street: null, fx: null, noise: null, unlocked: false });
+  a.lastEffect = Object.create(null);
+  try { context?.close()?.catch(() => {}); } catch {}
 }
 function syncAudioPreference() {
   const { context, master } = audioSystem;
@@ -92,11 +114,12 @@ function stopAudioVoices() {
   const now = audioSystem.context?.currentTime;
   if (now === undefined) return;
   for (const voice of audioSystem.voices) {
+    audioSystem.retiring.add(voice);
     try {
       voice.gain.gain.cancelScheduledValues(now);
       voice.gain.gain.setTargetAtTime(0, now, 0.008);
       voice.source.stop(now + 0.035);
-    } catch {}
+    } catch { voice.release(); }
   }
   audioSystem.voices.clear();
   audioSystem.bed.clear();
@@ -113,9 +136,14 @@ function audioScene(mode) {
   }
 }
 function trackVoice(source, gain, nodes) {
-  const voice = { source, gain };
+  const voice = { source, gain, release: null };
   audioSystem.voices.add(voice);
-  source.onended = () => {
+  let released = false;
+  voice.release = source.onended = () => {
+    if (released) return;
+    released = true;
+    source.onended = null;
+    audioSystem.retiring.delete(voice);
     audioSystem.voices.delete(voice);
     audioSystem.bed.delete(voice);
     for (const node of nodes) {

@@ -1,6 +1,6 @@
 // Real scene/model setup with a renderer double: not a browser/GPU test.
 const assert = require("node:assert/strict");
-const { loadGame } = require("./gameplay.test");
+const { loadGame } = require("../game/gameplay.test");
 const game = loadGame(null, 42, { rendererDouble: true }), { run } = game;
 assert.equal(game.nodes.get("game").dataset.view, "3d");
 run("prefs.sound=false; start(); spawnIn=999");

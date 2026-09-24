@@ -1,7 +1,7 @@
 // Real WebAudio graphs and offline PCM, with no microphone/audio files or npm build.
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { openBrowser, captureViews } = require("./browser-helpers");
+const { openBrowser, captureViews } = require("../helpers/browser");
 (async () => {
   const session = await openBrowser({ isMobile: true, hasTouch: true });
   try {
