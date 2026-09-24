@@ -1,113 +1,141 @@
-# Maintainer reference
+# Pug in Manhattan — technical reference
 
-Это технический контракт текущей игры. Пользовательские инструкции и запуск находятся в [README.md](README.md); история решений — в Git. Игра остаётся статическим HTML/CSS/JavaScript-приложением без обязательной сборки.
+## Product and change boundaries
 
-## Загрузка и ответственность
+The product is a WebGL 2 / Three.js arcade with procedural 3D Manhattan, a 3D pug, world actors, food and a transparent screen-space Canvas overlay. The checked-in Three.js r185 and adjacent MIT license are runtime dependencies. No package installation, transpiler, module bundler, CDN, external image or audio service is required to play.
 
-[index.html](index.html) исполняет классические `defer`-скрипты в порядке:
+Preserve gameplay rules, RNG draw order, scoring, hitboxes, spawn rates, balance, character design and camera composition during engineering work. Simulation is not presentation. New gameplay or art direction is a separate change. Do not split coherent files by line count; use responsibility boundaries, not wrappers or empty directories.
 
-```text
-balance → world-ratio → game → run-state → powers → events → street-events
-→ audio → drawing → render-feedback
-→ vendor/three-r185 → pug-3d → pug-animation → models-3d
-→ ratio-scene → ratio-diagnostics → render-3d → render
-```
+`README.md` is the player/developer overview. This file is the current technical contract, not a changelog. Each publication increments the visible `vMAJOR.MINOR.PATCH` in `index.html` and all CSS/JS/manifest `?v=` keys together. WorldRatio has its own independent version and immutable fixture.
 
-Общие объявления доступны последующим скриптам. Межмодульные вызовы внутри функций допустимы после загрузки, но побочные эффекты верхнего уровня не должны обращаться к ещё не объявленным зависимостям. `render.js` — единственная точка запуска: инициализация WebGL, resize, UI/HUD, подписка на resize и один RAF. Не добавлять вторые циклы в рендеры или actor-модули.
+## Module map and initialization
 
-`game.js` владеет состояниями `menu / play / pause / win / lose`, спавном, столкновениями, pointer/keyboard-вводом и DOM-меню. `run-state.js` отвечает за состояние забега, комбо и near-miss; `powers.js` — за бонусы и помощников; `events.js` — за игровые волны и дебаффы. Численные правила находятся в `balance.js`.
+All runtime JS files have one explicit `defer` script connection in `index.html`. Definitions use shared lexical globals in a single browser realm; they are not ES modules. Functions may refer to later definitions, but must not call those dependencies during file evaluation. Do not introduce implicit assignments to `window` or circular initialization. Only the bootstrap performs application subscription and startup.
 
-3D-рендерер только читает состояние. `render-feedback.js` и `drawing.js` рисуют прозрачные экранные эффекты поверх WebGL. `foodAngle()` в `render-3d.js` задаёт одинаковое вращение живых и пропущенных предметов. `models-3d.js` владеет общими ресурсами предметов/котов/птиц, но не создаёт героя и не определяет город.
-
-`ratio-scene.js` содержит единственное описание WORLD-сцены и её 3D-представление. `ratio-diagnostics.js` отвечает только за режимы проверки композиции. Альтернативного игрового рендера нет: даже устаревшие ссылки с параметром выбора вида открывают 3D. Canvas остаётся только прозрачным слоем эффектов/ввода и источником текстур для Three.js.
-
-## Версия опубликованной правки
-
-`#build-version` в [index.html](index.html) показывает `vMAJOR.MINOR.PATCH` снизу по центру во всех состояниях, включая экран ошибки WebGL. Это номер ревизии приложения, **не** `ratio_version` и не результат онлайн-проверки GitHub. При каждой публикации новой правки увеличивать patch-номер (начиная с `0.0.1`) и одновременно менять `?v=` у CSS и всех JS-подключений в том же HTML. Тест структуры проверяет совпадение подписи и cache keys; они не дают старому кэшу CSS/JS смешиваться с новым HTML. Старая подпись означает, что загружена старая страница; обновить её или открыть URL с новым query-параметром.
-
-Подпись — обычный DOM-слой внутри общего canonical fit и safe area; она не меняет WorldRatio, не обращается к сети, не перехватывает ввод и не исчезает при паузе, перезапуске или ошибке WebGL. Нижние подсказки располагаются выше неё. Файловые тесты и статический экспорт отбрасывают query-часть при чтении ресурсов с диска; HTTP-проверки используют исходные версионированные URL.
-
-## Gameplay invariants
-
-Логический прямоугольник всегда **390 × 844**. `W` и `H` неизменяемы; resize меняет только CSS fit и raster/DPR. Координаты pointer вычисляются из реального `getBoundingClientRect()`, а вертикальная область захвата — через `RatioPresentation.logicalY()`.
-
-Таблица еды определяется индексами `BALANCE.food`: 0 — сосиска, 1 — печенье, 2 — куриная ножка, 3 — пончик, 4–6 — овощи, 7 — кость, 8 — кирпич. Штрафы, частоты, пороги, длительности, скорости и RNG не должны изменяться как побочный эффект художественной правки или cleanup.
-
-При пересечении линии пропуска предмет перестаёт участвовать в игровых столкновениях. `streetEvents.drops` продолжает только его визуальную траекторию до полного ухода за экран. Повторные очки, штраф или подбор запрещены. Скорость/вращение, замедление и гравитация отскока сохраняются.
-
-Редкий уличный кот и бонусные коты — разные состояния. Выбор уличного кота не добавляет случайных чисел; **каждая пропущенная сосиска потребляет один выбор окраса, даже без появления кота**. Это сохраняет последовательность будущих спавнов. Помощники входят/уходят визуально, не меняя частоту подарков; летящий подарок сохраняет координаты своего фактического старта.
-
-Каждый хороший подбор сохраняет прежний дополнительный вызов RNG: удаление неиспользуемых sprite-полей не должно сдвигать будущие спавны. `easeInOut` для уличных котов и их подарков находится в `street-events.js`.
-
-Игровой `Math.random` не используется для геометрии, поз, проекции, звука или рендера. Локальная обёртка Three.js изолирует UUID RNG библиотеки. Существующую совместимость сохранённых настроек не удалять без миграционного теста.
-
-## PUG WORLD RATIO
-
-Источник истины — глубоко замороженный [js/world-ratio.js](js/world-ratio.js). Калибровка **1.0.0** задаёт композицию 600 × 1125, высоту мопса `0.16 H`, нейтральное отношение ширины к высоте `0.67`, опору `v=0.88`, горизонт `v=0.64` и точку схода `u=0.5`. Это намеренная стилизация, а не восстановленная реальная камера Манхэттена.
-
-WORLD использует перспективную камеру без наклона. Единица `P=1`; её высота — `1.5 P`, нормализованное фокусное расстояние — `0.9`, глубина мопса — `5.625 P`. Three.js Z направлена в сцену со знаком минус: `z = -d × 5.625`. Для относительной глубины `d>0` и аспекта `A=600/1125`:
+The actual load order is:
 
 ```text
-u = vanishing_u + pug_height_ratio × x / (A × d)
-v = horizon_v + (pug_ground_v − horizon_v − pug_height_ratio × y) / d
+balance → world-ratio → ui → game → pug-motion → input
+→ run-state → powers → events → street-events → audio
+→ canvas-primitives → feedback-overlay → Three.js
+→ pug-3d → pug-animation → models-3d → ratio-scene
+→ ratio-diagnostics → renderer-3d → bootstrap
 ```
 
-`WorldRatio.camera()` и `WorldRatio.project()` должны давать одинаковый результат, включая поднятые над землёй объекты. Перспективные mesh нельзя дополнительно масштабировать на `1/d`. Размеры дороги, полос, тротуаров, объектов и привязки по глубине берутся из registry; параметры версии не заменяются локальными «улучшающими» константами.
-
-Пространства координат:
-
-| Space | Правило |
+| Module | Responsibility and important dependencies |
 | --- | --- |
-| `WORLD` | Явные X/Y/depth и физические размеры; перспективная камера |
-| `GAMEPLAY_PLANE` | Фиксированная глубина; ортографическая камера и `RatioPresentation`; предметы не уменьшаются при движении вверх |
-| `HUD` | DOM поверх полного канонического прямоугольника |
-| `ATTACHED_EFFECT` | Привязка к соответствующему объекту, а не к экранному горизонту |
+| `js/app/ui.js` | DOM handles `$`, `cv`, `ctx`, `overlay`; persisted `prefs`; HUD/menu/error markup and UI bindings. Reads run state and calls game/audio commands only after startup. |
+| `js/app/input.js` | One Pointer Events/keyboard flow; `keys`, `drag`, `pointerTarget`; clear/capture/release. Converts screen coordinates through WorldRatio. |
+| `js/app/bootstrap.js` | Idempotent initialization; one active view; application-owned subscriptions and RAF; resize/raster; visibility/blur/page lifecycle; controlled graphics error and final disposal. |
+| `js/game/game.js` | State transitions, simulation clock, difficulty, spawns, collisions, collection and effects. Calls the existing game subsystems and motion update; does not construct GPU resources. |
+| `js/game/balance.js` | Numeric gameplay/raster configuration, food definitions and hazard/bone helpers. |
+| `js/game/run-state.js` | Run progress, streak/near-miss tracking, rhythm and related HUD state. |
+| `js/game/powers.js` | Timed powers, helper signals, gifts and power HUD. |
+| `js/game/events.js` | Event timing, emitted items and event effects. |
+| `js/game/street-events.js` | Missed-drop motion, penalties, sparse cat pickup scheduling. |
+| `js/character/pug-motion.js` | Simulation-time locomotion/gaze state, damping and motion reset. Invoked by `tick`, not by Three.js render. |
+| `js/character/pug-animation.js` | Pure pose sampling and application to the hero rig. No gameplay RNG or rule mutation. |
+| `js/character/pug-3d.js` | Procedural hero construction, rig and private GPU-resource ownership. |
+| `js/world/world-ratio.js` | Frozen `PUG_WORLD_RATIO`, `WorldRatio` projection/fit and `RatioPresentation` coordinate adapters; optional `ratio` review mode. |
+| `js/world/ratio-scene.js` | Procedural world, materials/textures, measured placement and world actors; reads `worldTime`, uses the model factory. |
+| `js/world/models-3d.js` | Shared geometry/material factory for food/cats/birds; exception-safe resource disposal helper. |
+| `js/render/renderer-3d.js` | Creates the two scene/camera passes, normalizes the hero, reads game state, pools visuals, invokes feedback and handles view disposal. `foodAngle` is presentation-only. |
+| `js/render/feedback-overlay.js` | Transparent screen-space aura, hazard/food cues, floating/victory/event/run feedback. |
+| `js/render/canvas-primitives.js` | Shared Canvas drawing primitives used by the feedback overlay. |
+| `js/render/ratio-diagnostics.js` | Ratio inspection labels and guides in screen space. |
+| `js/systems/audio.js` | Gesture-created WebAudio graph, score/Foley, preferences, voice ownership, scene transitions and teardown. |
+| `js/vendor/` | Pinned local Three.js implementation and license; upgrades require explicit review. |
 
-Viewport policy — `contain` без растяжения. Safe-area padding располагается снаружи всей композиции. CSS-база имеет размер 390 × 731.25; `--ratio-fit` масштабирует её вместе с HUD. DPR меняет плотность bitmap, но не камеру, registry, hitboxes или состояние забега. После resize при паузе нужен один repaint: изменение bitmap очищает Canvas даже при неизменных `W/H`.
+Keep `style.css` as one coherent stylesheet. Static icon files live under `assets/icons/`; all other visual/audio content is procedural. Do not create empty texture/image/audio pipelines. `scripts/build-preview.js` discovers paths from HTML/manifest, copies only runtime resources and the license, and refuses to replace a nonempty destination.
 
-### Импорт и изменение ассетов
+## Simulation and presentation
 
-Модель импортируется в устойчивой нейтральной позе. Один раз измеряется фактическая геометрия без невидимых частей, padding, теней, контактов и дыхания. Весь герой нормализуется **равномерно** по нейтральной высоте. Центр и точка опоры сохраняются отдельно; текущий размер анимации не используется для повторного масштабирования. Модель и анимация не владеют hitbox.
+`tick(dt)` owns simulation, collision/scoring/timers and the existing motion/gaze signal updates. `frame(now)` passes the existing capped delta, `min(delta, BALANCE.frame.maxDelta)` with a 0.04-second ceiling. Long browser stalls do not produce unlimited catch-up steps. This is a capped variable-step simulation, not a fixed-step engine: deterministic parity means identical seed, input sequence and delta sequence. Do not claim bit-identical trajectories for arbitrary different time-step partitions.
 
-Герой имеет непрерывную индексированную поверхность корпуса, отдельные анимируемые лапы и лицевые детали. `pug-animation.js` вычисляет позу из существующих сглаженных сигналов, переиспользуя буфер; не создаёт геометрию и не продвигает таймеры. Пауза сохраняет точные позы, матрицы, тени и дыхание. Опора лап, связность корпуса, полное моргание и экранные края являются тестируемыми ограничениями.
+The render passes, pure pose sampler, world animation and overlay must not mutate gameplay state, consume its RNG or create rule outcomes. The simulation-time gaze update in `pug-motion.js` does consume the established random sequence; keep it in `tick` and preserve its draw order. An apparently unused established random draw in collection is also intentional for parity. The audio noise buffer has its own private seeded generator and must not shift gameplay randomness.
 
-Изменение locked-калибровки требует новой `ratio_version` и новой fixture с сохранением предыдущих. [tests/fixtures/ratio-1.0.0.json](tests/fixtures/ratio-1.0.0.json) защищена digest-проверкой: нельзя переписать её вместе с изменением значений под прежней версией.
+`start`, `menu`, `pause` and `finish` remain rule/state transitions, not renderer construction. Restart/menu reuse the same view and shared resources. World geometry and character pose sampling never determine hitboxes or spawn rules. Diagnostics must remain read-only. Array/object keys in the renderer are presentation Maps/WeakMaps, not extra fields added to simulation objects.
 
-### Review modes
+## PUG WORLD RATIO invariants
 
-`?ratio=blockout` показывает упрощённую геометрию и направляющие. `?ratio=reference` фиксирует нейтральную позу в `u=0.44`. `?ratio=overlay` добавляет диагностику к игре. Это постоянные инструменты проверки контракта, не временные test-only hooks.
+`js/world/world-ratio.js` and `tests/fixtures/ratio-1.0.0.json` define **1.0.0**. The fixture digest is tested; never rewrite it to make a changed composition pass. A locked-value change requires a new ratio version and a retained fixture.
 
-## Resource lifecycle и недоступный WebGL
+Composition: **600 × 1125**, aspect **8/15**. Logical gameplay remains **390 × 844**. Pug height is **0.16** of the composition, neutral width/height target **0.67**, ground **v = 0.88**, reference pug **u = 0.44**. Horizon is **v = 0.64**, vanishing point **u = 0.50**. Camera calibration is stylized, not a reconstruction of physical dimensions.
 
-Владельцы ресурсов: `world.dispose()`, `hero.userData.dispose()`, `model.dispose()` и WebGLRenderer. Ресурсы регистрируются сразу после успешного создания, освобождаются и при частично завершённом конструировании, и при нормальном teardown. Dispose идемпотентен; ошибка одного владельца не должна помешать освобождению остальных.
+For dimensionless camera depth `d > 0`, world coordinates `(x,y)` project as:
 
-View снимает `webglcontextlost` listener **до** принудительного освобождения контекста, освобождает ресурсы, очищает пулы и удаляет canvas. Запоздалое событие от старого canvas не должно ставить новый забег на паузу. `showGraphicsError()` при ошибке запуска или работы выставляет `graphicsUnavailable`, ставит активный забег на паузу, очищает ввод, останавливает звук и освобождает view. RAF и tick перестают продвигаться; start/menu заблокированы. DOM-панель с `role="alert"` предлагает перезагрузку страницы, которая начинает новый сеанс. Автоматического переключения или бесконечного повторного создания WebGL нет. Сообщение видно и в диагностических режимах. Не пересоздавать renderer на каждом старте.
+```text
+u = vanishing_u + pug_height_ratio / aspect * x / d
+v = horizon_v + (pug_ground_v - horizon_v - pug_height_ratio * y) / d
+```
 
-GPU-тесты различают реальную утечку и ленивую загрузку невидимых mesh. Перед сравнением прогреваются blink/chew/breath-ветви. Рендерерная DFG LUT прогревается независимым материалом, чтобы она не скрывала утечку текстуры героя.
+The perspective camera is calibrated to this equation. World objects use the dimension registry and depth anchors. Road/lane/sidewalk widths and bridge/skyline placements remain registry-driven. Spaces are `WORLD`, `GAMEPLAY_PLANE`, `HUD`, and `ATTACHED_EFFECT`.
 
-## Audio
+The world pass uses a perspective camera. Hero/food/helper presentation uses a fixed orthographic gameplay-plane camera without moving simulation coordinates. Hero normalization uses authored neutral bounds once, not live animation bounds. `RatioPresentation` provides forward/inverse adapters including pointer Y and food scale. Never normalize a new hero from a blink, breath, lean or temporary effect.
 
-Один AudioContext разблокируется пользовательским жестом. Шины `fx / music / ambience / street` и два фоновых источника переиспользуются; новый кадр или restart не создаёт дополнительную петлю. Pause, mute и скрытие страницы освобождают голоса. Продолжение и новое управление могут возобновить приостановленный браузером контекст. Просроченные уличные события не воспроизводятся пачкой. WebAudio использует собственную случайность, независимую от игры.
+CSS fits the entire canonical composition with `contain`, centered within safe-area padding, never stretched. `resize()` only changes CSS fit and drawing-buffer dimensions, not world camera projection, logical game size or gameplay state. The transparent canvas and WebGL canvas have exactly the same rounded buffer size. `BALANCE.frame.maxDpr = 1.5` is an existing raster cap; renderer pixel ratio remains one to avoid multiplying DPR twice. Measure before changing it.
 
-## Test matrix
+Review URLs use `?ratio=blockout`, `?ratio=reference` or `?ratio=overlay`. They show the same permanent contract; they do not redefine the camera or game rules.
 
-| Suite | Проверяемый контракт |
+## WebGL lifecycle and GPU ownership
+
+`bootstrap()` is idempotent. It registers subscriptions through `listen()`, creates one `activeView`, performs resize/UI setup and schedules at most one RAF. `scheduleFrame()` refuses duplicate, hidden, suspended or graphics-error work; `stopFrame()` cancels the pending handle. `frame()` is also safe when explicitly invoked while a callback is pending.
+
+View construction is exception-safe, including partial factory, hero and world construction. A failed initializer, frame, resize, or genuine `webglcontextlost` enters `showGraphicsError()` once. The handler prevents default context-loss behavior, freezes gameplay, clears input, closes the audio graph, cancels RAF, releases the active view and shows the reload screen. No automatic recovery/retry loop is attempted. Reload is a new session, not a promise to restore the interrupted run.
+
+| Owner | Resources and retirement |
 | --- | --- |
-| `gameplay.test.js` | Очки, RNG, бонусы, штрафы, пауза/рестарт; три seeded 120-секундных прогона; точное сравнение с доступным Git ref |
-| `character.test.js` | Настоящая Three-геометрия, связность, опора, чистота позы, 3600 кадров и 240 крайних поз; владение ресурсами |
-| `world-ratio.test.js` | Версия/fixture, обе формулы проекции, точка схода, прямые линии, depth, пять viewport fits, нейтральный масштаб и обратные адаптеры |
-| `street-events.test.js` | Девять типов пропуска, однократный штраф, отскок/slow, pause/resize/reset, коты и origin подарков |
-| `ratio-runtime.test.js` | Реальные модели с renderer double: все эффекты, 3D repaint на паузе и остановка при ошибке WebGL; **не GPU-проверка** |
-| `repository.test.js` | Syntax, script graph, DOM hooks, manifest/icons/license, локальные ссылки, экспорт и HTTP-ресурсы под Pages prefix |
-| `browser.test.js` | Реальный DOM/WebGL, pointer/keyboard, столкновения/HUD, пауза/resize/restart, seeded parity с рендерингом и без, недоступный WebGL/Three.js |
-| `character-browser.test.js` | Девять состояний, точная пауза, фактическая проекция силуэта у краёв и шесть GPU lifecycle cycles |
-| `render-lifecycle.test.js` | Частичное создание, ошибки модели/города/анимации/рендера/resize/cleanup, context loss, идемпотентность, освобождение всех ресурсов и остановка RAF |
-| `audio-browser.test.js` | Gesture unlock/resume/mute, WebAudio-графы, PCM, непрерывный фон, ограниченные события и hidden cleanup |
+| Model factory | Shared geometries and cached materials used by many food/cat/bird instances and world actors. Dispose once when the whole view retires, never when one mesh leaves a pool. |
+| Hero `userData.dispose` | Private hero geometries, materials and generated shadow/breath texture; idempotent and safe on partial construction. |
+| Ratio world | Private geometries, materials, generated Canvas textures and instanced-mesh resources. Shared factory assets remain factory-owned. |
+| View | Active/pool Maps, scenes, canvas context-loss subscription, renderer. Remove its context-loss listener **before** `forceContextLoss`, so a retired canvas cannot affect a later view. Clear scenes/maps and remove the DOM canvas. |
+| Three.js renderer | Shader programs and framework internals. Call `dispose()` and release its context. A lazily uploaded internal DFG lookup texture can remain in retired `renderer.info` bookkeeping; it is not an application texture or a reusable live context. |
 
-`tests/browser-helpers.js` объединяет HTTP-сервер, запуск браузера, внешнее наблюдение за сценой и явно выбранную local-content загрузку. Все suite-команды проходят через `tests/run.js`; browser зависимости находятся вне приложения. Ограничения HTTP-навигации, physical devices и субъективной оценки звука нужно указывать отдельно от результатов автоматических тестов.
+No render targets are currently created by application modules. Introduced textures/targets must be assigned an explicit owner. `disposeThreeResources` continues across owner cleanup exceptions. Do not recursively dispose every traversed material: many meshes share factory resources.
 
-## Правила изменений
+`renderer.info` is used by browser tests, not exposed as a production debug UI. Warm all food variants, helper types and hero visibility branches before comparing memory. After warming, animation and restart/menu must not increase geometries, textures or programs. A separate test verifies allocation/disposal events, including partial construction, rather than inferring ownership only from memory counters.
 
-Перед удалением файла проверять index, динамические обращения, CSS, manifest, тесты, CLI-скрипты и документацию. Новый JS-модуль обязан иметь явную роль и подключение; не сохранять старую реализацию только ради её теста. Локальные иконки и лицензию Three.js сохранять также в статическом экспорте. Не добавлять CDN, framework, npm pipeline или публичные test globals без отдельной необходимости.
+## Input, tab lifecycle and audio
 
-Проверять изменения против текущего `main`, а не случайного исторического эталона. Перед коммитом запускать все применимые suites и `git diff --check`; историю не переписывать. Обновления ветки не означают публикацию Pages: рабочую ветку не сливать в `main` без отдельного указания.
+Pointer events handle touch, mouse and pen with one captured pointer. Only primary mouse-button drags are accepted. Additional contacts cannot steal the drag. Capture failure safely abandons the gesture; up/cancel/lostcapture clear it. Key state is cleared on pause, blur and teardown. `touch-action: none` belongs to the game surface; UI buttons use manipulation. Coordinate mapping reads the current bounding rect after every resize.
+
+`visibilitychange` to hidden stops RAF, pauses a playing run, clears input and fades/stops voices. Returning visibility resets the frame time and restarts presentation without resuming the paused run or replaying hidden time. Blur pauses and clears input. Persisted `pagehide` suspends a back/forward-cache entry; `pageshow` resumes only presentation. Non-persisted `pagehide` performs final teardown.
+
+`disposeApplication()` is idempotent: stops scheduling, removes every bootstrap-owned subscription, retires the view, closes the audio graph, clears the overlay path cache/raster, and removes active overlay button nodes. A retired application cannot allocate a view until bootstrap owns its lifecycle again. New bootstrap after a normal explicit teardown starts one set of subscriptions/view; a graphics-error session still requires reload.
+
+Audio unlock occurs only after a user gesture, respects mute, and can resume a suspended context. Ordinary restart/menu reuse one AudioContext. There are six owned permanent nodes: five gain buses and a compressor. Source/filter/panner/gain nodes belong to a tracked voice. `onended` disconnects its graph exactly once. Faded voices awaiting their short scheduled stop are tracked separately as retiring, so final teardown can disconnect them even before `onended` fires. The continuous city bed has two voices and active voice creation is capped at 48.
+
+A partially initialized audio graph is closed/disconnected before a later gesture can retry. Unsupported audio must never stop gameplay. `disposeAudio()` disconnects voices, retiring voices and buses, clears buffers/references, and closes the context without an unhandled rejected promise. Mute/pause do not close the reusable context. PCM tests verify envelopes, headroom and relative levels, not physical speaker loudness.
+
+## Repository and deployment contracts
+
+HTML/manifest/icon/JS/CSS paths are relative to the project, not domain-root URLs. Manifest `start_url` and `scope` are `./`. The HTTP harness serves a `/pug-in-manhattan/` prefix to catch wrong assumptions. The repository test checks script inventory/order, syntax, DOM IDs/hooks, vendor hash/license, icons, manifest, links and byte-exact preview exports.
+
+Generated screenshots, bundles, archives, logs, browser profiles, caches and external test-tool installs stay outside tracked files. Only deliberate fixtures belong under `tests/fixtures/`. Keep `.gitignore` aligned with local outputs; do not suppress intentional fixtures or sources broadly.
+
+Publish a reviewed feature branch without force, inspect the PR diff/checks, merge into `main`, wait for the Pages deployment of that commit, then verify **production bytes and browser behavior**. An HTTP 200 or a green build alone does not establish that the new version is live. `tests/browser/live-verify.js` compares every linked resource and manifest icon to the local checkout before checking interactions, console and network.
+
+## Test matrix and commands
+
+Node.js 22+ is the only requirement for non-browser tests. Browser tests use external Playwright/Chromium and software WebGL when appropriate. The recursive runner discovers `*.test.js`; `tests/browser/` determines browser suites. Do not hide environment failures as skipped/pass results.
+
+| Suite or command | Coverage |
+| --- | --- |
+| `node tests/run.js` | Six non-browser suites below. |
+| `tests/game/gameplay.test.js` | Scoring, shields/bones, pause, jam, lose/restart, powers; three seeded simulations; render purity. `--compare <git-ref> --seconds 600` compares every second and final RNG against the ref's own HTML/script graph. |
+| `tests/game/street-events.test.js` | All misses, penalties, drop physics, rare cats, helper origin/entry/exit, pause/reset. |
+| `tests/character/character.test.js` | Geometry, proportions, grounded paws/catch band, pure poses, blink/breath/reactions, edge poses and disposal. |
+| `tests/world/world-ratio.test.js` | Immutable fixture, full Three camera projection, object anchors, fitting and unchanged logical state on resize. |
+| `tests/render/ratio-runtime.test.js` | Real scene/model setup with a renderer double, powers/foods, paused repaint and graphics error; not a GPU/browser test. |
+| `tests/repository.test.js` | Revision/cache keys, paths/inventory/syntax/DOM, manifest/icons/vendor/license, export, actual HTTP bytes under project prefix. |
+| `tests/browser/browser.test.js` | Genuine DOM/WebGL, touch/keyboard, pickups/collisions/HUD/powers, pause/resume/restart/resize, render parity, WebGL failure and loss. |
+| `tests/browser/character-browser.test.js` | Nine poses, exact paused transforms, edge bounds, six hero GPU cycles and independent framework baseline. |
+| `tests/browser/audio-browser.test.js` | Unlock/resume/mute/hidden state, voice deduplication, continuous bed/street events, PCM mix/headroom. |
+| `tests/browser/render-lifecycle.test.js` | Full/partial model and renderer faults, allocation/disposal counts, genuine context loss, cleanup exceptions and idempotent disposal. |
+| `tests/browser/runtime-browser.test.js` | Six DPR-3 viewports, pointer cancellation/multicontact/resize, 20 full GPU/application reinitializations, 60 restart/menu cycles, listener/RAF ownership, partial audio failure, context loss and native RAF/visibility and synthetic persisted page events. |
+| `node tests/visual-compare.js <git-ref>` | 25 exact PNG pairs across five viewports and menu/play/pause/effects/reference scenes. Only revision text excluded; same executable/OS/backend per comparison; CPU CSS raster and SwiftShader WebGL are fixed by the harness. Never rewrites goldens. |
+| `TEST_BASE_URL=... node tests/browser/live-verify.js` | Explicit live asset-byte check plus native startup, world/pug/input/audio/pause/restart/resize/menu and console/network. |
+
+Run `node tests/run.js --browser` for five browser suites, or `--all` for all eleven. Set `PLAYWRIGHT_MODULE` and `CHROMIUM_PATH` when tools are not resolvable by default; use `xvfb-run -a` on headless Linux where needed. `SCREENSHOT_DIR` records optional images outside source control. `OFFLINE_BROWSER=1` is explicit local-content loading in real DOM/WebGL, not browser HTTP verification. It cannot be combined with `TEST_BASE_URL`. Network tests must also run over real HTTP before publication.
+
+Do not call Chromium viewport emulation a physical iPhone, Safari or mobile GPU test. No service worker or guaranteed offline launch exists. Differences between OS/GPU/browser configurations require investigation, not a blanket zero-pixel assumption.
