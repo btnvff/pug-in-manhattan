@@ -2,7 +2,6 @@ const easeInOut = (u) => {
   u = Math.max(0, Math.min(1, u));
   return u * u * (3 - 2 * u);
 };
-/** Fixed spacing and a shared speed prevent traffic overtaking and sprite crossings. */
 function pug(px, py, t, scale = 1) {
   ctx.save();
   ctx.translate(px, py);
