@@ -6,7 +6,25 @@ The product is a WebGL 2 / Three.js arcade with procedural 3D Manhattan, a 3D pu
 
 Preserve gameplay rules, RNG draw order, scoring, hitboxes, spawn rates, balance, character design and camera composition during engineering work. Simulation is not presentation. New gameplay or art direction is a separate change. Do not split coherent files by line count; use responsibility boundaries, not wrappers or empty directories.
 
-`README.md` is the player/developer overview. This file is the current technical contract, not a changelog. Each publication increments the visible `vMAJOR.MINOR.PATCH` in `index.html` and all CSS/JS/manifest `?v=` keys together. WorldRatio has its own independent version and immutable fixture.
+`README.md` is the player/developer overview. This file is the current technical contract, not a changelog. The canonical game version is the `#build-version` text in [index.html](index.html); its CSS/JS/manifest `?v=` keys are matching cache identifiers, checked by `tests/repository.test.js`, not independent version sources. Increment PATCH only for a completed, verified user-visible iteration or behavior fix. Audits, documentation-only changes and failed or unfinished attempts do not increment it. WorldRatio has its own independent version and immutable fixture.
+
+## Current version and known-good state
+
+Current game version: **v0.0.3**. Latest confirmed playable baseline and runtime rollback point: **[41350649cf572b4bdb083a255928c9b197109b9d](https://github.com/btnvff/pug-in-manhattan/commit/41350649cf572b4bdb083a255928c9b197109b9d)**, merged in PR #10. Documentation-only commits do not replace this runtime baseline. Always read the current remote `main` before work; never reset newer work to this recorded commit.
+
+Verification evidence from **2026-09-24**: [Pages deployment](https://github.com/btnvff/pug-in-manhattan/actions/runs/36005769488) succeeded; [post-merge production verification](https://github.com/btnvff/pug-in-manhattan/actions/runs/36005839981) checked byte-exact resources and five live browser suites. These are dated successful runs, not a promise of a fresh live check on every audit or a physical-device certification. The visible badge currently reads `v0.0.3` only; it does **not** show a commit hash. Do not describe it as `v0.0.3 · 41350649` or fetch remote HEAD and present that as the running code.
+
+The product is intentionally FULL-3D. Do not restore the retired standalone 2D world, pug, food renderer, view selector or old-game fallback. Earlier instructions to preserve that fallback refer to the retired architecture. Preserve the Canvas overlays, diagnostics and procedural textures used by the current 3D product. Permanent review entry points are [PUG-WORLD-RATIO.md](PUG-WORLD-RATIO.md) and [CHARACTER_REVIEW.md](CHARACTER_REVIEW.md); they point to the current implementations and constraints rather than historical preview reports.
+
+## Normal development loop
+
+User request → inspect current relevant files/contracts → one focused change → targeted verification → check behavior when possible → increment PATCH for a completed user-visible iteration/fix → commit/push when appropriate → report actual version, checks, branch, commit and publication status. Keep the latest known-good playable commit as the rollback point for risky work. Commit/push authorization does not imply permission to merge or rewrite history.
+
+Choose tests by the changed responsibility: pug changes use character and relevant visual/runtime checks; gameplay uses gameplay/RNG and a smoke test; world/camera uses WorldRatio and relevant visual/runtime checks; UI uses relevant browser behavior and viewport checks. Documentation-only changes need links/path consistency and a diff review. The full historical structural regression, long parity runs and 25 image pairs are **not** the default gate for every small edit; use them when scope or a specific regression justifies them. Inspect a failed step before making another change; an environment-blocked test is not a pass and does not by itself justify changing the game.
+
+Launch from the repository root with `python3 -m http.server 8000`; see [README.md](README.md#running-locally). Keep no npm, bundler, app ES modules or runtime CDN; retain local Three.js, the explicit defer order, Russian UI, existing controls/balance/RNG and portrait-first composition.
+
+GitHub-managed **pages build and deployment** is the essential publication workflow. Its confirmed baseline run checked out `main` and built the repository root. There are no checked-in workflows on the baseline `main`; temporary `structure-verification.yml` and the older `pug-world-ratio.yml` survive only on historical branches and are not part of the normal development loop. Do not merge, recreate or rerun them for routine work, or create a new publication workflow to compensate for local network/browser restrictions. Preserve the existing Pages deployment; verify administrative settings directly when a deployment change actually requires it.
 
 ## Module map and initialization
 
