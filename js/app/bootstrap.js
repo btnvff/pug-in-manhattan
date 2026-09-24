@@ -18,7 +18,7 @@ function scheduleFrame() {
     frameRequest = requestAnimationFrame(frame);
 }
 function initializeView() {
-  if (activeView || graphicsUnavailable) return;
+  if (!applicationStarted || activeView || graphicsUnavailable) return;
   try {
     activeView = createThreeView();
     $("game").dataset.view = "3d";
@@ -100,6 +100,9 @@ function disposeApplication() {
   for (const remove of applicationListeners.splice(0)) remove();
   releaseView();
   disposeAudio();
+  pathCache.clear();
+  if (ctx) clearRatioCanvas();
+  cv.width = cv.height = 0;
   overlay.innerHTML = "";
 }
 function bootstrap() {

@@ -21,9 +21,10 @@ function walk(folder) {
   assert.ok(version, "visible revision uses major.minor.patch");
   const scriptURLs = [...html.matchAll(/<script defer src="\.\/(.*?)"/g)].map((m) => m[1]);
   const cssURL = html.match(/<link rel="stylesheet" href="\.\/(.*?)"/)?.[1];
-  for (const url of [...scriptURLs, cssURL]) {
+  const manifestURL = html.match(/<link rel="manifest" href="\.\/(.*?)"/)?.[1];
+  for (const url of [...scriptURLs, cssURL, manifestURL]) {
     assert.ok(url, "stylesheet and script URLs exist");
-    assert.equal(url.split("?")[1], "v=" + version, "CSS/JS cache keys match the visible revision");
+    assert.equal(url.split("?")[1], "v=" + version, "CSS/JS/manifest cache keys match the visible revision");
   }
   const scripts = scriptURLs.map((url) => url.split(/[?#]/)[0]);
   assert.equal(new Set(scripts).size, scripts.length, "no duplicate script execution");
