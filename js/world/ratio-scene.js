@@ -11,19 +11,30 @@ function createRatioLayout() {
   }
   const box = (color, x, y, z, w, h, l, extra) => shape("box", color, x, y, z / Z, w, h, l, extra);
   const ball = (color, x, y, z, w, h, l, extra) => shape("ball", color, x, y, z / Z, w, h, l, extra);
-  function rod(color, a, b, r) { const c = a.map((v, i) => (v + b[i]) / 2); return shape("rod", color, c[0], c[1], c[2] / Z, r * 2, Math.hypot(...a.map((v, i) => v - b[i])), r * 2, { a, b }); }
-  const transition = WorldRatio.depthAtGround(C.ground_regions.avenue_transition_v) * Z;
-  const crossing = WorldRatio.depthAtGround(C.ground_regions.intersection_end_v) * Z;
-  box("#777e7e", 0, -.10, (transition + 420) / 2, 5, .2, 420 - transition, { surface: "road", id: "avenue" });
-  box("#858a87", 0, -.10, (crossing + transition) / 2, 38, .2, transition - crossing, { surface: "road", id: "intersection" });
-  box("#8c908a", 0, -.10, (.2 + crossing) / 2, 38, .2, crossing - .2, { surface: "road", id: "apron" });
-  for (const side of [-1, 1]) {
-    box("#c5c0ac", side * 3.1, .035, (transition + 330) / 2, 1.2, .07, 330 - transition, { surface: "sidewalk" });
-    box("#d8d0b7", side * 2.53, .09, (transition + 330) / 2, .10, .18, 330 - transition);
-    // Distant avenue curbs stop at the transverse street.
-    box("#c8c1ae", side * 10, .03, transition + .6, 12.6, .06, 1.2);
+  function rod(color, a, b, r, extra = {}) { const c = a.map((v, i) => (v + b[i]) / 2); return shape("rod", color, c[0], c[1], c[2] / Z, r * 2, Math.hypot(...a.map((v, i) => v - b[i])), r * 2, { a, b, ...extra }); }
+  const street = {
+    road: C.road_dimensions, near: .2, far: 420, crossWidth: 38, sidewalkTop: .07,
+    transition: WorldRatio.depthAtGround(C.ground_regions.avenue_transition_v) * Z,
+    crossing: WorldRatio.depthAtGround(C.ground_regions.intersection_end_v) * Z
+  };
+  const { road, transition, crossing } = street;
+  // Cover the visible ground envelope, not a wider carriageway or a new scale.
+  const groundHalfWidth = WorldRatio.aspect * (street.far / Z) / (2 * C.pug_height_ratio);
+  box("#777e7e", 0, -.10, (transition + street.far) / 2, road.carriageway, .2, street.far - transition, { surface: "road", id: "avenue" });
+  box("#858a87", 0, -.10, (crossing + transition) / 2, street.crossWidth, .2, transition - crossing, { surface: "road", id: "intersection" });
+  box("#8c908a", 0, -.10, (street.near + crossing) / 2, street.crossWidth, .2, crossing - street.near, { surface: "road", id: "apron" });
+  for (let i = 0; i < 2; i++) {
+    const side = i ? 1 : -1, edge = Math.abs(road.road_edges[i]);
+    const z = (transition + street.far) / 2, length = street.far - transition;
+    // One continuous slab supports the 1.2P walking strip and the adjoining block.
+    // No coplanar shared edge between separately instanced sidewalk/corner floors.
+    box("#c5c0ac", side * (edge + groundHalfWidth) / 2, street.sidewalkTop / 2, z,
+      groundHalfWidth - edge, street.sidewalkTop, length, { surface: "block-ground", id: "block-ground-" + side });
+    box("#d8d0b7", road.road_edges[i] + side * .03, .09, z, .10, .18, length);
+    box("#d8d0b7", side * (edge + groundHalfWidth) / 2, .09, transition + .05,
+      groundHalfWidth - edge, .18, .10);
     for (let z = transition + 1; z < 70; z += 1.35)
-      box("#a7a797", side * 3.1, .077, z, 1.13, .009, .016);
+      box("#a7a797", road.sidewalk_centers[i], .077, z, road.sidewalk - .07, .009, .016);
   }
   for (let z = transition + .8; z < 100; z += 3.6)
     box("#e2c875", 0, .009, z, .052, .018, 1.8);
@@ -109,24 +120,46 @@ function createRatioLayout() {
       rod("#bed0d2", [x, 53, z], [x, 60, z], .11);
     }
   }
-  // Elevated transverse bridge, deck at Y=8.25; piers never form a street gate.
-  const deck = C.ground_regions.bridge_deck_y;
-  for (const d of [12, 14.2]) {
-    const z = d * Z;
+  // One transverse deck; tower planes, crossheads and cable supports share a layout.
+  const bridge = {
+    tower: C.object_dimension_registry.bridge_tower, rearDepth: 14.2,
+    towerX: 5.7, halfWidth: 18, deckY: C.ground_regions.bridge_deck_y, deckThickness: .48
+  };
+  const planes = [bridge.tower.depth * Z, bridge.rearDepth * Z];
+  const deckTop = bridge.deckY + bridge.deckThickness / 2, head = bridge.tower.height;
+  const bridgeCenter = (planes[0] + planes[1]) / 2, bridgeDepth = planes[1] - planes[0];
+  box("#76939d", 0, bridge.deckY, bridgeCenter, bridge.halfWidth * 2,
+    bridge.deckThickness, bridgeDepth + 2.4, { role: "bridge-deck" });
+  for (const side of [-1, 1]) {
+    // Each crosshead connects the front/rear legs of its own tower, not the skyline.
+    box("#668998", side * bridge.towerX, head - 2.1, bridgeCenter,
+      1.2, .55, bridgeDepth + 1.5, { role: "bridge-crosshead" });
+  }
+  for (const z of planes) {
     for (const side of [-1, 1]) {
-      box("#708f9d", side * 5.7, 12.75, z, 1, 25.5, 1.5, { role: "bridge-tower" });
-      box("#a4b8b9", side * 5.7, 25.3, z, 1.4, .35, 1.9);
-      box("#8ca4ac", side * 5.7, 26, z, .9, 1.2, 1.5);
+      const x = side * bridge.towerX;
+      box("#708f9d", x, head / 2, z, 1, head, 1.5, { role: "bridge-tower" });
+      box("#a4b8b9", x, head - .2, z, 1.4, .35, 1.9);
+      box("#8ca4ac", x, head + .5, z, .9, 1.2, 1.5);
     }
-    box("#668998", 0, 23.4, z, 11.4, .55, 1.2);
-    box("#76939d", 0, deck, z, 36, .48, 2.4, { role: "bridge-deck" });
-    box("#acc0c1", 0, deck + .32, z - 1.12, 36, .12, .14);
-    for (let x = -17; x <= 17; x += .6) {
-      const y = deck + 1.3 + 15 * Math.pow((Math.abs(x) - .2) / 17, 2);
-      rod("#73939e", [x, deck + .3, z - 1.1], [x, y, z - 1.1], .028);
-      if (x < 17) {
-        const nx = x + .6, ny = deck + 1.3 + 15 * Math.pow((Math.abs(nx) - .2) / 17, 2);
-        rod("#537e91", [x, y, z - 1.1], [nx, ny, z - 1.1], .07);
+    const railZ = z + (z === planes[0] ? -1.12 : 1.12);
+    box("#acc0c1", 0, bridge.deckY + .32, railZ, bridge.halfWidth * 2, .12, .14);
+    const supports = [
+      [-bridge.halfWidth + 1, deckTop], [-bridge.towerX, head],
+      [bridge.towerX, head], [bridge.halfWidth - 1, deckTop]
+    ];
+    // Piecewise spans include the exact tower heads; the old unrelated parabola missed them.
+    for (let span = 0; span < supports.length - 1; span++) {
+      const a = supports[span], b = supports[span + 1], steps = Math.ceil((b[0] - a[0]) / .6);
+      const sag = span === 1 ? head - (bridge.deckY + 1.3) : 2;
+      let previous = null;
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps, x = a[0] + (b[0] - a[0]) * t;
+        const y = a[1] + (b[1] - a[1]) * t - 4 * sag * t * (1 - t), point = [x, y, z];
+        if (previous) rod("#537e91", previous, point, .07, { role: "bridge-cable" });
+        if ((span === 0 || i > 0) && y > deckTop + .01)
+          rod("#73939e", [x, deckTop, z], point, .028, { role: "bridge-hanger" });
+        previous = point;
       }
     }
   }
@@ -151,7 +184,7 @@ function createRatioLayout() {
     box("#e6ae6f", x, .56, z, .43, .13, .13);
     box("#f0b97b", x, .92, z, .10, .06, .10);
   }
-  return { objects, buildings };
+  return { objects, buildings, street };
 }
 const RATIO_LAYOUT = createRatioLayout();
 function createRatioWorld(model) {
