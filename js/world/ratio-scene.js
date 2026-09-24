@@ -18,6 +18,9 @@ function createRatioLayout() {
     crossing: WorldRatio.depthAtGround(C.ground_regions.intersection_end_v) * Z
   };
   const { road, transition, crossing } = street;
+  // Keep one clear walking strip; furniture occupies the outer sidewalk edge.
+  street.walkingX = Math.abs(road.sidewalk_centers[1]) - .22;
+  street.furnitureX = Math.abs(road.sidewalk_edges[1]) - .20;
   // Cover the visible ground envelope, not a wider carriageway or a new scale.
   const groundHalfWidth = WorldRatio.aspect * (street.far / Z) / (2 * C.pug_height_ratio);
   box("#777e7e", 0, -.10, (transition + street.far) / 2, road.carriageway, .2, street.far - transition, { surface: "road", id: "avenue" });
@@ -166,14 +169,14 @@ function createRatioLayout() {
   // Lamps, vegetation and bins are placed on sidewalks, with explicit elevation.
   for (const side of [-1, 1])
     for (let i = 0; i < 4; i++) {
-      const d = 3.2 + i * 2.4 + (side > 0 ? .55 : 0), z = d * Z, xx = side * 2.88;
+      const d = 3.2 + i * 2.4 + (side > 0 ? .55 : 0), z = d * Z, xx = side * street.furnitureX;
       rod("#455854", [xx, .07, z], [xx, 3.3, z], .055);
       rod("#455854", [xx, 3.3, z], [xx - side * .5, 3.44, z], .045);
       shape("ball", "#f3dca0", xx - side * .5, 3.36, d, .26, .15, .26);
       if (i % 2 === 0) {
-        box("#637b60", side * 3.43, .36, z + 1.5, .40, .58, .45);
-        rod("#77654d", [side * 3.36, .07, z + 3], [side * 3.36, 2.7, z + 3], .065);
-        ball("#6f9472", side * 3.36, 3, z + 3, 1.25, 1.65, 1.2);
+        box("#637b60", side * street.furnitureX, .36, z + 1.5, .40, .58, .45);
+        rod("#77654d", [side * street.furnitureX, .07, z + 3], [side * street.furnitureX, 2.7, z + 3], .065);
+        ball("#6f9472", side * street.furnitureX, 3, z + 3, 1.25, 1.65, 1.2);
       }
     }
   for (const side of [-1, 1]) {
@@ -251,51 +254,139 @@ function createRatioWorld(model) {
       } scl.set(o.width, o.height, o.length); matrix.compose(pos, quat, scl); mesh.setMatrixAt(i, matrix); });
       root.add(mesh);
     }
-    // Original sedan silhouette, authored once in canonical dimensions; camera scales it.
-    function car(color, d, lane) {
-      const g = new T.Group();
-      g.userData = { space: "WORLD", dimensions: { ...C.object_dimension_registry.taxi }, d, lane };
+    const street = RATIO_LAYOUT.street, road = street.road;
+    const taxi = C.object_dimension_registry.taxi;
+    const bend = taxi.width, lane = Math.abs(road.lane_centers[0]);
+    const farZ = street.far - taxi.length;
+    const crossZ = street.crossing + (street.transition - street.crossing) / 3;
+    const crossFarZ = street.crossing + (street.transition - street.crossing) * .75;
+    const turnZ = crossZ + bend, turnX = lane + bend;
+    const exitX = street.crossWidth / 2 - taxi.length / 2 - .10;
+    const straight = farZ - turnZ, arc = Math.PI * bend / 2;
+    const routeLength = straight + arc + exitX - turnX;
+    const mod = (v, n) => ((v % n) + n) % n;
+    const smooth = t => t * t * (3 - 2 * t);
+    function joint(parent, x = 0, y = 0, z = 0) {
+      const g = new T.Group(); g.position.set(x, y, z); parent.add(g); return g;
+    }
+    // Three fixed routes, sampled from worldTime; no simulation/RAF or RNG here.
+    // Avenue cars turn in the near cross lane. Through-traffic uses the far
+    // lane, behind the hero silhouette, in three reserved gaps per avenue lap.
+    const avenuePeriod = routeLength / 4.5, crossDepartures = [8, 30, 52];
+    function carPose(a, time) {
+      const p = a.pose, distance = time * a.speed + a.offset;
+      p.distance = distance;
+      if (a.route === "cross") {
+        const phase = mod(time, avenuePeriod);
+        const departure = crossDepartures.find(t => phase >= t && phase < t + exitX * 2 / a.speed);
+        p.distance = departure === undefined ? 0 : (phase - departure) * a.speed;
+        p.x = -exitX + p.distance;
+        p.z = crossFarZ;
+        p.heading = Math.PI / 2;
+      } else {
+        let s = mod(distance, routeLength);
+        const outgoing = a.route === "outgoing";
+        if (outgoing) s = routeLength - s;
+        if (s <= straight) {
+          p.x = -lane; p.z = farZ - s; p.heading = 0;
+        } else if (s < straight + arc) {
+          const angle = (s - straight) / bend;
+          p.x = -turnX + bend * Math.cos(angle);
+          p.z = turnZ - bend * Math.sin(angle);
+          p.heading = -angle;
+        } else {
+          p.x = -turnX - (s - straight - arc);
+          p.z = crossZ; p.heading = -Math.PI / 2;
+        }
+        if (outgoing) { p.x = -p.x; p.heading = Math.PI - p.heading; }
+      }
+      a.mesh.position.set(p.x, 0, -p.z);
+      a.mesh.rotation.y = p.heading;
+      a.wheels.forEach(w => { w.rotation.x = mod(p.distance / .25, Math.PI * 2); });
+    }
+    // Original sedan dimensions/material ownership are retained. Rotating hubs
+    // have a spoke, so rolling is visible rather than spinning a featureless ball.
+    function car(color, route, speed, offset) {
+      const g = new T.Group(), wheels = [];
+      g.userData = { space: "WORLD", kind: "car", dimensions: { ...taxi }, route };
       const part = (shape, c, x, y, z, w, h, l) => model.part(g, shape, c, x, y, z, w, h, l);
       part("box", color, 0, .48, 0, 1.80, .48, 4.0);
-      part("ball", color, 0, .80, .08, .89, .47, 1.34);
+      part("ball", color, 0, .61, 1.15, .89, .18, .85);
       part("box", "#426274", 0, .95, -.10, 1.63, .45, 1.85);
       part("box", color, 0, 1.2, -.10, 1.70, .10, 1.91);
       part("box", color, 0, .91, -.10, 1.72, .48, .11);
       for (const side of [-1, 1]) {
         for (const z of [-1.25, 1.24]) {
-          part("ball", "#283333", side * .82, .25, z, .18, .25, .25);
-          part("ball", "#abb2a7", side * .97, .25, z, .025, .12, .12);
+          const wheel = joint(g, side * .82, .25, z);
+          model.part(wheel, "ball", "#283333", 0, 0, 0, .18, .25, .25);
+          model.part(wheel, "ball", "#abb2a7", side * .15, 0, 0, .025, .12, .12);
+          model.part(wheel, "box", "#53615f", side * .178, 0, 0, .008, .20, .025);
+          wheels.push(wheel);
         }
         part("box", "#f3dfa3", side * .58, .51, 2.025, .42, .16, .03);
         part("box", "#a84437", side * .62, .51, -2.025, .28, .16, .03);
       }
       part("box", "#c4c4ad", 0, .28, 2.04, 1.75, .11, .03);
-      part("box", "#f0c76d", 0, 1.29, -.1, .60, .12, .35);
+      if (route === "incoming") part("box", "#f0c76d", 0, 1.29, -.1, .60, .12, .35);
       root.add(g);
-      actors.push({ kind: "car", mesh: g, d, lane });
-      return g;
+      actors.push({ kind: "car", mesh: g, route, speed, offset, wheels, pose: {} });
     }
     if (ratioMode !== "blockout") {
-      car("#eab73c", 4.8, -1.25);
-      car("#698395", 7.5, 1.25);
+      car("#eab73c", "incoming", 4.5, farZ - taxi.depth * Z);
+      car("#698395", "outgoing", 4.5, routeLength - (farZ - 7.5 * Z));
+      car("#997267", "cross", 3.2, 0);
       for (let i = 0; i < 5; i++) {
-        const g = new T.Group(), d = 4 + i * 1.25, side = i % 2 ? 1 : -1;
-        model.part(g, "ball", ["#446c80", "#ad7957", "#5d7d61"][i % 3], 0, 1.25, 0, .19, .45, .14);
-        model.part(g, "ball", "#c69c7a", 0, 1.97, 0, .18, .23, .18);
-        const legs = [];
-        for (const s of [-1, 1])
-          legs.push(model.rod(g, [s * .1, 1, 0], [s * .1, .07, 0], .063, "#344a53"));
-        for (const s of [-1, 1])
-          model.rod(g, [s * .19, 1.55, 0], [s * .23, .99, 0], .057, "#a77f62");
+        const g = new T.Group(), side = i % 2 ? 1 : -1;
+        const body = joint(g), legs = [], arms = [];
+        g.userData = { space: "WORLD", kind: "person", dimensions: { ...C.object_dimension_registry.pedestrian } };
+        model.part(body, "ball", ["#446c80", "#ad7957", "#5d7d61"][i % 3], 0, 1.25, 0, .19, .45, .14);
+        model.part(body, "ball", "#c69c7a", 0, 1.97, 0, .18, .23, .18);
+        model.part(body, "ball", "#c69c7a", 0, 1.96, .18, .035, .04, .04);
+        for (const s of [-1, 1]) {
+          const hip = joint(body, s * .10, 1.03, 0);
+          model.rod(hip, [0, 0, 0], [0, -.48, 0], .055, "#344a53");
+          const knee = joint(hip, 0, -.48, 0);
+          model.rod(knee, [0, 0, 0], [0, -.47, 0], .055, "#344a53");
+          const foot = joint(knee, 0, -.47, 0);
+          model.part(foot, "ball", "#344a53", 0, 0, .035, .085, .08, .135);
+          legs.push({ hip, knee, foot });
+          const arm = joint(body, s * .15, 1.53, 0);
+          model.rod(arm, [0, 0, 0], [0, -.56, 0], .05, "#a77f62");
+          arms.push(arm);
+        }
         root.add(g);
-        actors.push({ kind: "person", mesh: g, d, lane: side * 3.16, legs });
+        // Separated short sidewalk walks: stop, look/turn, then walk back facing
+        // the travel direction. No recycled pedestrians popping through a facade.
+        const near = street.transition + 2 + Math.floor(i / 2) * 16 + (side > 0 ? 3 : 0);
+        const length = 10 + (i % 3) * 1.5, duration = length * 1.5 / .9;
+        actors.push({ kind: "person", mesh: g, body, legs, arms, near, length,
+          lane: side * street.walkingX, duration, offset: i * 5.7 + 4, pose: {} });
       }
     }
     function animate(time) { for (const a of actors) {
-      const z = (a.d + (a.kind === "car" ? (Math.sin(time * .055 + a.d) - Math.sin(a.d)) * .55 : (Math.sin(time * .07 + a.d) - Math.sin(a.d)) * .22)) * Z;
-      a.mesh.position.set(a.lane, 0, -z);
-      if (a.kind === "person")
-        a.legs.forEach((leg, i) => { leg.rotation.x = Math.sin(time * 3 + i * Math.PI) * .22; });
+      if (a.kind === "car") { carPose(a, time); continue; }
+      const half = a.duration + 2, t = mod(time + a.offset, half * 2);
+      const back = t >= half, local = back ? t - half : t;
+      const u = Math.min(1, local / a.duration), progress = smooth(u);
+      const travel = a.length * progress;
+      const speed = local < a.duration ? a.length / a.duration * 6 * u * (1 - u) : 0;
+      const turn = smooth(Math.max(0, (local - a.duration) / 2));
+      const p = a.pose;
+      p.x = a.lane; p.z = a.near + (back ? a.length - travel : travel);
+      p.heading = back ? Math.PI * 2 + Math.PI * turn : Math.PI + Math.PI * turn;
+      p.distance = (back ? a.length : 0) + travel; p.speed = speed;
+      a.mesh.position.set(p.x, street.sidewalkTop, -p.z);
+      a.mesh.rotation.y = p.heading;
+      const phase = p.distance / .95 * Math.PI * 2;
+      const swing = Math.sin(phase) * Math.min(1, speed / .6);
+      a.body.position.y = -.95 * (1 - Math.cos(.30 * swing));
+      a.legs.forEach((leg, i) => {
+        const step = (i ? -1 : 1) * swing;
+        leg.hip.rotation.x = -.30 * step;
+        leg.knee.rotation.x = Math.max(0, step);
+        leg.foot.rotation.x = -leg.hip.rotation.x - leg.knee.rotation.x;
+        a.arms[i].rotation.x = .22 * step;
+      });
     } }
     animate(0);
     return { root, animate, actors, dispose };

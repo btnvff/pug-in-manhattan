@@ -55,11 +55,12 @@ scripts/
 tests/
   browser/    audio-browser.test.js, browser.test.js,
               character-browser.test.js, render-lifecycle.test.js,
-              runtime-browser.test.js, live-verify.js
+              runtime-browser.test.js, street-motion-browser.test.js,
+              live-verify.js
   character/  character.test.js
   game/       gameplay.test.js, street-events.test.js
   render/     ratio-runtime.test.js
-  world/      world-ratio.test.js
+  world/      world-ratio.test.js, street-motion.test.js
   helpers/    browser.js
   fixtures/   ratio-1.0.0.json
   repository.test.js
@@ -88,13 +89,13 @@ CHARACTER_REVIEW.md
 
 ## Testing
 
-Node.js 22+; шесть наборов логики, геометрии, проекции, событий, структуры и HTTP-ресурсов:
+Node.js 22+; семь наборов логики, геометрии, проекции, событий, структуры и HTTP-ресурсов:
 
 ```sh
 node tests/run.js
 ```
 
-Пять браузерных наборов используют **внешнюю** установку Playwright и Chromium, не добавляя зависимостей игре:
+Шесть браузерных наборов используют **внешнюю** установку Playwright и Chromium, не добавляя зависимостей игре:
 
 ```sh
 PLAYWRIGHT_MODULE=/path/to/playwright/driver/package \

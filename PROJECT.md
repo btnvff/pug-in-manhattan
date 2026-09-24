@@ -10,11 +10,21 @@ Preserve gameplay rules, RNG draw order, scoring, hitboxes, spawn rates, balance
 
 ## Current version and known-good state
 
-Current game version: **v0.0.4** (ground/bridge correction). Latest production-verified playable baseline retained as the runtime rollback point: **v0.0.3**, **[41350649cf572b4bdb083a255928c9b197109b9d](https://github.com/btnvff/pug-in-manhattan/commit/41350649cf572b4bdb083a255928c9b197109b9d)**, merged in PR #10. Documentation-only commits do not replace this runtime baseline. Always read the current remote `main` before work; never reset newer work to this recorded commit.
+Current game version: **v0.0.5** (street-motion candidate; not yet merged or deployed). Latest production-verified playable baseline retained as the runtime rollback point: **v0.0.3**, **[41350649cf572b4bdb083a255928c9b197109b9d](https://github.com/btnvff/pug-in-manhattan/commit/41350649cf572b4bdb083a255928c9b197109b9d)**, merged in PR #10. Documentation-only commits do not replace this runtime baseline. Always read the current remote `main` before work; never reset newer work to this recorded commit.
 
-Verification evidence from **2026-09-24**: [Pages deployment](https://github.com/btnvff/pug-in-manhattan/actions/runs/36005769488) succeeded; [post-merge production verification](https://github.com/btnvff/pug-in-manhattan/actions/runs/36005839981) checked byte-exact resources and five live browser suites. These are dated successful runs, not a promise of a fresh live check on every audit or a physical-device certification. At that baseline verification the badge read `v0.0.3`; the current badge reads `v0.0.4` only and still does **not** show a commit hash. Do not describe it as `v0.0.3 · 41350649` or fetch remote HEAD and present that as the running code.
+Verification evidence from **2026-09-24**: [Pages deployment](https://github.com/btnvff/pug-in-manhattan/actions/runs/36005769488) succeeded; [post-merge production verification](https://github.com/btnvff/pug-in-manhattan/actions/runs/36005839981) checked byte-exact resources and five live browser suites. These are dated successful runs, not a promise of a fresh live check on every audit or a physical-device certification. At that baseline verification the badge read `v0.0.3`; the current candidate badge reads `v0.0.5` only and still does **not** show a commit hash. Do not describe it as `v0.0.3 · 41350649` or fetch remote HEAD and present that as the running code.
 
 The product is intentionally FULL-3D. Do not restore the retired standalone 2D world, pug, food renderer, view selector or old-game fallback. Earlier instructions to preserve that fallback refer to the retired architecture. Preserve the Canvas overlays, diagnostics and procedural textures used by the current 3D product. Permanent review entry points are [PUG-WORLD-RATIO.md](PUG-WORLD-RATIO.md) and [CHARACTER_REVIEW.md](CHARACTER_REVIEW.md); they point to the current implementations and constraints rather than historical preview reports.
+
+### Street motion candidate — v0.0.5, 2026-09-24
+
+`chatgpt/street-motion` starts from published v0.0.4 / `86f8411e58fb59b3e45151872744f7f402725d32`, retained as this task's rollback commit. Its tiny sinusoidal car/person displacements made the street appear stationary. Native local-browser frames still advanced food and gameplay; the reported complete phone freeze was not reproduced and is not claimed fixed.
+
+The existing world now samples three car routes (including turns and reserved far-lane transverse passes) and five spaced sidewalk walks from `worldTime`. Wheel/gait motion follows traveled distance; people stop before turning. Furniture moves to the outer sidewalk edge to clear the walking strip. Counts/resources are reused, with no new clock, RNG, gameplay helper, camera or scale change. Only world-owned actor geometry changes; shared factory/hero materials remain untouched.
+
+Verification: repository/HTTP resource checks, WorldRatio, ratio-runtime, three-seed 30-second gameplay/RNG parity against the starting commit; new 300-second swept-route, offscreen/fog recycling, grounded-foot and pure-sampling assertions. The new browser regression leaves native RAF running and checks moving cars/people/food, drag, exact pause, resume/visibility, four warmed restarts and genuine context loss. Actual Chromium 144/WebGL 2 SwiftShader reference/menu/play captures and motion sequence inspected; matching 600×1125 hero/contact and HUD crops are unchanged. Ratio 1.0.0 and its fixture are unchanged.
+
+Browser verification uses the existing local-content mode: local HTTP navigation returns `ERR_BLOCKED_BY_ADMINISTRATOR`; production verification fails at its first request with `getaddrinfo EAI_AGAIN btnvff.github.io`. No Safari/physical-phone or mobile-performance verification, new deployment, or completion of the broader environment redesign is claimed. Main/production remain v0.0.4 until a separately approved merge/deployment.
 
 ### Ground and bridge correction — v0.0.4, 2026-09-24
 
@@ -151,14 +161,16 @@ Node.js 22+ is the only requirement for non-browser tests. Browser tests use ext
 
 | Suite or command | Coverage |
 | --- | --- |
-| `node tests/run.js` | Six non-browser suites below. |
+| `node tests/run.js` | Seven non-browser suites below. |
 | `tests/game/gameplay.test.js` | Scoring, shields/bones, pause, jam, lose/restart, powers; three seeded simulations; render purity. `--compare <git-ref> --seconds 600` compares every second and final RNG against the ref's own HTML/script graph. |
 | `tests/game/street-events.test.js` | All misses, penalties, drop physics, rare cats, helper origin/entry/exit, pause/reset. |
 | `tests/character/character.test.js` | Geometry, proportions, grounded paws/catch band, pure poses, blink/breath/reactions, edge poses and disposal. |
 | `tests/world/world-ratio.test.js` | Immutable fixture, full Three camera projection, object anchors, fitting and unchanged logical state on resize. |
+| `tests/world/street-motion.test.js` | Pure actor sampling, full swept car/sidewalk clearance, recycling, grounded gait and bounded counts. |
 | `tests/render/ratio-runtime.test.js` | Real scene/model setup with a renderer double, powers/foods, paused repaint and graphics error; not a GPU/browser test. |
 | `tests/repository.test.js` | Revision/cache keys, paths/inventory/syntax/DOM, manifest/icons/vendor/license, export, actual HTTP bytes under project prefix. |
 | `tests/browser/browser.test.js` | Genuine DOM/WebGL, touch/keyboard, pickups/collisions/HUD/powers, pause/resume/restart/resize, render parity, WebGL failure and loss. |
+| `tests/browser/street-motion-browser.test.js` | Native (unfrozen) RAF moves actors/food; input, pause/visibility, restart ownership and context loss. |
 | `tests/browser/character-browser.test.js` | Nine poses, exact paused transforms, edge bounds, six hero GPU cycles and independent framework baseline. |
 | `tests/browser/audio-browser.test.js` | Unlock/resume/mute/hidden state, voice deduplication, continuous bed/street events, PCM mix/headroom. |
 | `tests/browser/render-lifecycle.test.js` | Full/partial model and renderer faults, allocation/disposal counts, genuine context loss, cleanup exceptions and idempotent disposal. |
@@ -166,6 +178,6 @@ Node.js 22+ is the only requirement for non-browser tests. Browser tests use ext
 | `node tests/visual-compare.js <git-ref>` | 25 exact PNG pairs across five viewports and menu/play/pause/effects/reference scenes. Only revision text excluded; same executable/OS/backend per comparison; CPU CSS raster and SwiftShader WebGL are fixed by the harness. Never rewrites goldens. |
 | `TEST_BASE_URL=... node tests/browser/live-verify.js` | Explicit live asset-byte check plus native startup, world/pug/input/audio/pause/restart/resize/menu and console/network. |
 
-Run `node tests/run.js --browser` for five browser suites, or `--all` for all eleven. Set `PLAYWRIGHT_MODULE` and `CHROMIUM_PATH` when tools are not resolvable by default; use `xvfb-run -a` on headless Linux where needed. `SCREENSHOT_DIR` records optional images outside source control. `OFFLINE_BROWSER=1` is explicit local-content loading in real DOM/WebGL, not browser HTTP verification. It cannot be combined with `TEST_BASE_URL`. Network tests must also run over real HTTP before publication.
+Run `node tests/run.js --browser` for six browser suites, or `--all` for all thirteen. Set `PLAYWRIGHT_MODULE` and `CHROMIUM_PATH` when tools are not resolvable by default; use `xvfb-run -a` on headless Linux where needed. `SCREENSHOT_DIR` records optional images outside source control. `OFFLINE_BROWSER=1` is explicit local-content loading in real DOM/WebGL, not browser HTTP verification. It cannot be combined with `TEST_BASE_URL`. Network tests must also run over real HTTP before publication.
 
 Do not call Chromium viewport emulation a physical iPhone, Safari or mobile GPU test. No service worker or guaranteed offline launch exists. Differences between OS/GPU/browser configurations require investigation, not a blanket zero-pixel assumption.
