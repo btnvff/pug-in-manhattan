@@ -1,0 +1,26 @@
+name: Structural verification support
+on:
+  push:
+    branches: [chatgpt/structure-verification]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Export repository history without credentials
+        run: |
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+          git bundle create "$RUNNER_TEMP/repository.bundle" --all
+          git log -30 --oneline --all > "$RUNNER_TEMP/history.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: structural-source
+          path: |
+            ${{ runner.temp }}/repository.bundle
+            ${{ runner.temp }}/history.txt
+          retention-days: 7
