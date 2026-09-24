@@ -4,93 +4,106 @@ on:
     branches: [chatgpt/structure-verification]
     paths: [.github/workflows/structure-verification.yml]
 permissions:
-  contents: write
+  contents: read
   statuses: write
 jobs:
-  verify-and-push:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     defaults:
       run:
         shell: bash
     env:
+      PHASE: review
       BASE_SHA: 61388622768eddc05da158c318d66a3f72a28f83
-      FEATURE_SHA: d8a896ecb32a581e2c7578d343cc90587ba7e704
-      FEATURE_TREE: 5328101fad04adb333e7abb963f933947982ee7b
+      EXPECTED_SHA: eb28df9bfc4317ec313bb0d3085d01c356c13842
+      EXPECTED_TREE: f0e7b3057799037137abd3430b145dff73df9406
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ env.EXPECTED_SHA }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Restore the exact four reviewed commits outside the production tree
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Check exact reviewed source and clean tree
         run: |
-          test "$(git rev-parse origin/main)" = "$BASE_SHA"
-          : > "$RUNNER_TEMP/feature.mbox.xz"
-          for object in cef9b4eed118fc6fa15e569042ae4000aa3d3f41 8929b57e2ba68f81eaa0d057268f9f65c8afc937 20de4b8681765d7e633c62ef56dcef176a44c46e c826b2acb97fcd0c2647499e8f859bf874a830dc ca81cf4d3f664080d5dc094d56b3ca8de969a972; do
-            gh api "repos/btnvff/pug-in-manhattan/git/blobs/$object" --jq .content | base64 --decode >> "$RUNNER_TEMP/feature.mbox.xz"
-          done
-          test "$(sha256sum "$RUNNER_TEMP/feature.mbox.xz" | cut -d' ' -f1)" = 9dfd155e9064f795fac35396448a5aad23020d3981d4f39d1ba27d22a3edd811
-          gh api repos/btnvff/pug-in-manhattan/git/blobs/ce74f7c478a340a22c8bd88379a4c63cabb5d2ea --jq .content | base64 --decode > "$RUNNER_TEMP/url-fix.mbox.xz"
-          test "$(sha256sum "$RUNNER_TEMP/url-fix.mbox.xz" | cut -d' ' -f1)" = 44b60c6a636cc5ed093b89ad57947811f49ab1e40bb05cee659ef3fd909e9761
-          python -c 'import lzma,os,pathlib; p=pathlib.Path(os.environ["RUNNER_TEMP"]); [(p/name).write_bytes(lzma.decompress((p/(name+".xz")).read_bytes())) for name in ["feature.mbox","url-fix.mbox"]]'
-          git checkout -b refactor/project-structure "$BASE_SHA"
-          git -c user.name=btnvff -c user.email=130178310+btnvff@users.noreply.github.com am --committer-date-is-author-date "$RUNNER_TEMP/feature.mbox" "$RUNNER_TEMP/url-fix.mbox"
-          test "$(git rev-parse HEAD)" = "$FEATURE_SHA"
-          test "$(git rev-parse HEAD^{tree})" = "$FEATURE_TREE"
-          git diff --check "$BASE_SHA"
-          test -z "$(git status --porcelain)"
           mkdir -p "$RUNNER_TEMP/structure-checks"
-          git log -4 --format=fuller > "$RUNNER_TEMP/structure-checks/commits.txt"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
+          test -z "$(git status --porcelain)"
+          git diff --check "$BASE_SHA"
+          git log "$BASE_SHA"..HEAD --format=fuller > "$RUNNER_TEMP/structure-checks/commits.txt"
           git diff --stat "$BASE_SHA" > "$RUNNER_TEMP/structure-checks/diff-stat.txt"
-      - name: Install pinned external Chromium test tools without modifying the game
+          if [ "$PHASE" = review ]; then
+            test "$(git rev-parse origin/main)" = "$BASE_SHA"
+            test "$(git rev-parse origin/refactor/project-structure)" = "$EXPECTED_SHA"
+          else
+            test "$(git rev-parse origin/main)" = "$EXPECTED_SHA"
+            git checkout main
+            git pull --ff-only origin main
+          fi
+      - name: Install pinned external Chromium test tools
         run: |
           python -m pip install --target "$RUNNER_TEMP/browser-tools" playwright==1.57.0
           export PYTHONPATH="$RUNNER_TEMP/browser-tools"
           python -m playwright install --with-deps chromium
           echo "PLAYWRIGHT_MODULE=$(python -c 'import playwright,pathlib; print(pathlib.Path(playwright.__file__).parent / "driver/package")')" >> "$GITHUB_ENV"
           echo "CHROMIUM_PATH=$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')" >> "$GITHUB_ENV"
-      - name: Verify the original FULL-3D base over genuine HTTP
+      - name: Run all eleven suites over genuine HTTP
         env:
-          SCREENSHOT_DIR: ${{ runner.temp }}/structure-checks/base-screenshots
-        run: |
-          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
-          (cd "$RUNNER_TEMP/base" && xvfb-run -a node tests/run.js --all) 2>&1 | tee "$RUNNER_TEMP/structure-checks/base-tests.log"
-          git worktree remove "$RUNNER_TEMP/base"
-      - name: Run all eleven refactored suites over genuine HTTP
-        env:
-          SCREENSHOT_DIR: ${{ runner.temp }}/structure-checks/current-screenshots
+          SCREENSHOT_DIR: ${{ runner.temp }}/structure-checks/screenshots
         run: |
           xvfb-run -a node tests/run.js --all 2>&1 | tee "$RUNNER_TEMP/structure-checks/tests.log"
-      - name: Compare three ten-minute seeded gameplay and RNG runs
+      - name: Compare three ten-minute seeded runs
         run: |
           node tests/game/gameplay.test.js --compare "$BASE_SHA" --seconds 600 2>&1 | tee "$RUNNER_TEMP/structure-checks/parity.log"
-      - name: Compare twenty-five paired screenshots in one fixed HTTP environment
+      - name: Compare twenty-five exact visual pairs
+        if: env.PHASE == 'review'
         env:
           SCREENSHOT_DIR: ${{ runner.temp }}/structure-checks/visual-screenshots
         run: |
           xvfb-run -a node tests/visual-compare.js "$BASE_SHA" 2>&1 | tee "$RUNNER_TEMP/structure-checks/visual.log"
-          git diff --check
-          test -z "$(git status --porcelain)"
-          test "$(git rev-parse HEAD^{tree})" = "$FEATURE_TREE"
-      - name: Push only the verified feature branch without force and record the passing gate
+      - name: Verify deployed resource bytes and native production interactions
+        if: env.PHASE == 'live'
+        env:
+          TEST_BASE_URL: https://btnvff.github.io/pug-in-manhattan/
+          SCREENSHOT_DIR: ${{ runner.temp }}/structure-checks/production
+        run: |
+          xvfb-run -a node tests/browser/live-verify.js 2>&1 | tee "$RUNNER_TEMP/structure-checks/live.log"
+      - name: Run full browser regression against actual GitHub Pages
+        if: env.PHASE == 'live'
+        env:
+          TEST_BASE_URL: https://btnvff.github.io/pug-in-manhattan/
+          SCREENSHOT_DIR: ${{ runner.temp }}/structure-checks/production-regression
+        run: |
+          xvfb-run -a node tests/run.js --browser 2>&1 | tee "$RUNNER_TEMP/structure-checks/live-browser.log"
+      - name: Record verified SHA and synchronized repository
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           git fetch origin
-          test "$(git rev-parse origin/main)" = "$BASE_SHA"
-          git push -u origin refactor/project-structure
-          gh api --method POST "repos/btnvff/pug-in-manhattan/statuses/$FEATURE_SHA" -f state=success -f context=structure/verification -f description='11 HTTP suites, 3 long seeded runs and 25 exact visual pairs passed' -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          git fetch origin
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
+          test -z "$(git status --porcelain)"
+          if [ "$PHASE" = review ]; then
+            test "$(git rev-parse origin/main)" = "$BASE_SHA"
+            test "$(git rev-parse origin/refactor/project-structure)" = "$EXPECTED_SHA"
+            context=structure/verification
+            description='11 HTTP suites, 3 long seeded runs and 25 exact visual pairs passed'
+          else
+            test "$(git branch --show-current)" = main
+            test "$(git rev-parse origin/main)" = "$EXPECTED_SHA"
+            context=structure/live
+            description='Exact Pages bytes, native interactions and 5 live browser suites passed'
+          fi
+          gh api --method POST "repos/btnvff/pug-in-manhattan/statuses/$EXPECTED_SHA" -f state=success -f context="$context" -f description="$description" -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           git bundle create "$RUNNER_TEMP/structure-checks/repository.bundle" --all
-          printf 'HEAD=%s\nTREE=%s\nBASE=%s\n' "$FEATURE_SHA" "$FEATURE_TREE" "$BASE_SHA" > "$RUNNER_TEMP/structure-checks/verified.txt"
+          git status --short --branch > "$RUNNER_TEMP/structure-checks/git-status.txt"
+          printf 'HEAD=%s\nTREE=%s\nBASE=%s\nPHASE=%s\n' "$EXPECTED_SHA" "$EXPECTED_TREE" "$BASE_SHA" "$PHASE" > "$RUNNER_TEMP/structure-checks/verified.txt"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: structural-regression-checks
+          name: structural-${{ env.PHASE }}-checks
           path: ${{ runner.temp }}/structure-checks
           retention-days: 7
