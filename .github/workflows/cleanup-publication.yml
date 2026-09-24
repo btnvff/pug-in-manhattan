@@ -1,10 +1,32 @@
 name: Cleanup publication
 on:
-  workflow_dispatch:
+  push:
+    branches: [chatgpt/consolidation-publication]
 permissions:
   contents: read
 jobs:
-  ready:
+  verify-transport:
     runs-on: ubuntu-latest
     steps:
-      - run: echo 'Publication transport prepared; activation follows verified bundle upload.'
+      - name: Inspect bundle transport without updating game branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/transport"
+          python3 - <<'PY'
+          import base64, json, os, pathlib, urllib.request
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'transport'
+          shas = ['040e89a26e02605e6ddb82d92dfcf9f362fc59c0', '25381615b78c8da9a54d54eea085415d6f4bcaed']
+          for i, sha in enumerate(shas):
+              req = urllib.request.Request('https://api.github.com/repos/btnvff/pug-in-manhattan/git/blobs/' + sha, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+              with urllib.request.urlopen(req) as response:
+                  blob = json.load(response)
+              data = base64.b64decode(blob['content'])
+              (out / ('part-%d.b64' % i)).write_text(base64.b64encode(data).decode('ascii'))
+              print(i, sha, len(data))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cleanup-transport-verification
+          path: ${{ runner.temp }}/transport
+          retention-days: 1
