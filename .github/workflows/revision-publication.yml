@@ -5,67 +5,146 @@ on:
     paths: [.github/workflows/revision-publication.yml]
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
+  actions: read
 jobs:
-  verify-and-push:
+  verify-live:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
+    env:
+      MERGE_SHA: 8dd3db9fea6b54d3afdf1392e17a369aa0efba5b
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 2eac676e5461d69cfd6812cdce80b099a412294d
+          ref: main
           fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Restore the exact locally reviewed revision
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GIT_AUTHOR_DATE: '2026-09-24T11:13:20Z'
-          GIT_COMMITTER_DATE: '2026-09-24T11:13:20Z'
+      - name: Confirm main and install external browser tooling
         run: |
-          test "$(git rev-parse origin/main)" = 2eac676e5461d69cfd6812cdce80b099a412294d
-          gh api repos/btnvff/pug-in-manhattan/git/blobs/8d4e42b8afa4f2005ce93f255c9963b1fc7990c3 --jq .content | base64 --decode > "$RUNNER_TEMP/revision.patch"
-          test "$(git hash-object "$RUNNER_TEMP/revision.patch")" = 8d4e42b8afa4f2005ce93f255c9963b1fc7990c3
-          python - <<'PY'
-          import os
-          from pathlib import Path
-          p = Path(os.environ['RUNNER_TEMP']) / 'revision.patch'
-          p.write_text(p.read_text().replace('\n diff --git ', '\ndiff --git '))
-          PY
-          git checkout -b chatgpt/revision-badge
-          git apply --unidiff-zero --index "$RUNNER_TEMP/revision.patch"
-          git diff --cached --check
-          test "$(git write-tree)" = 363cad86684d7257d06858945c2096493d306542
-          git -c user.name=btnvff -c user.email=130178310+btnvff@users.noreply.github.com commit -m 'feat: show revision v0.0.1 at bottom center with matching asset cache keys'
-          test "$(git rev-parse HEAD)" = 5e307ff5566caf88dc3cf4a238324e463cc1b99f
-      - name: Install external browser test tools
-        run: |
+          git pull --ff-only origin main
+          test "$(git rev-parse HEAD)" = "$MERGE_SHA"
+          test "$(git rev-parse HEAD^{tree})" = 363cad86684d7257d06858945c2096493d306542
           python -m pip install --target "$RUNNER_TEMP/browser-tools" playwright==1.57.0
           export PYTHONPATH="$RUNNER_TEMP/browser-tools"
           python -m playwright install --with-deps chromium
-          echo "PLAYWRIGHT_MODULE=$(python -c 'import playwright, pathlib; print(pathlib.Path(playwright.__file__).parent / "driver/package")')" >> "$GITHUB_ENV"
-          echo "CHROMIUM_PATH=$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')" >> "$GITHUB_ENV"
-      - name: All Node and real HTTP browser suites plus exact gameplay parity
-        env:
-          SCREENSHOT_DIR: ${{ runner.temp }}/revision-checks/screenshots
-        run: |
-          mkdir -p "$RUNNER_TEMP/revision-checks"
-          xvfb-run -a node tests/run.js --all | tee "$RUNNER_TEMP/revision-checks/tests.log"
-          node tests/gameplay.test.js --compare 2eac676e5461d69cfd6812cdce80b099a412294d | tee "$RUNNER_TEMP/revision-checks/parity.log"
-          git diff --check
+          echo "PYTHONPATH=$PYTHONPATH" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/revision-live"
+          git bundle create "$RUNNER_TEMP/revision-live/main.bundle" refs/heads/main
+          sha256sum "$RUNNER_TEMP/revision-live/main.bundle" > "$RUNNER_TEMP/revision-live/bundle-sha256.txt"
+          git status --short --branch > "$RUNNER_TEMP/revision-live/git-status.txt"
           test -z "$(git status --porcelain)"
-      - name: Push feature branch without force
+      - name: Wait for successful deployment of this exact main
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git fetch origin
-          test "$(git rev-parse origin/main)" = 2eac676e5461d69cfd6812cdce80b099a412294d
-          git push -u origin chatgpt/revision-badge
+          for attempt in {1..30}; do
+            gh api "repos/btnvff/pug-in-manhattan/actions/runs?head_sha=$MERGE_SHA&per_page=20" > "$RUNNER_TEMP/revision-live/pages.json"
+            if jq -e '.workflow_runs | any(.name == "pages build and deployment" and .conclusion == "success")' "$RUNNER_TEMP/revision-live/pages.json"; then exit 0; fi
+            sleep 5
+          done
+          exit 1
+      - name: Verify live assets and the badge through real gameplay
+        run: |
+          cat > "$RUNNER_TEMP/live.py" <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import time
+          from urllib.parse import urlsplit
+          from playwright.sync_api import sync_playwright
+          root = Path.cwd()
+          out = Path(os.environ['RUNNER_TEMP']) / 'revision-live'
+          base = 'https://btnvff.github.io/pug-in-manhattan/'
+          html = (root / 'index.html').read_bytes()
+          urls = list(dict.fromkeys(['index.html', 'js/vendor/three-LICENSE.txt'] + re.findall(r'(?:src|href)="\./(.*?)"', html.decode()) + ['icon-512.png']))
+          report = {'commit': os.environ['MERGE_SHA'], 'version': '0.0.1', 'assets': [], 'views': {}, 'errors': [], 'bad_responses': []}
+          with sync_playwright() as p:
+              http = p.request.new_context()
+              for attempt in range(30):
+                  response = http.get(base, timeout=30000)
+                  if response.ok and response.body() == html:
+                      break
+                  time.sleep(5)
+              else:
+                  raise AssertionError('Pages has not served the exact new main HTML')
+              for url in urls:
+                  response = http.get(base + url)
+                  expected = (root / urlsplit(url).path).read_bytes()
+                  assert response.status == 200 and response.body() == expected, url
+                  report['assets'].append({'url': url, 'status': response.status, 'sha256': hashlib.sha256(expected).hexdigest()})
+              browser = p.chromium.launch(headless=True, args=['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
+              def badge(page):
+                  assert page.locator('#build-version').inner_text() == 'v0.0.1'
+                  assert page.locator('#build-version').is_visible()
+                  assert page.evaluate('''() => {
+                    const n = document.getElementById('build-version'), b = n.getBoundingClientRect();
+                    const g = document.getElementById('game').getBoundingClientRect();
+                    return Math.abs(b.x + b.width / 2 - g.x - g.width / 2) < 1 &&
+                      b.bottom <= g.bottom && b.top > g.top + g.height * .94 &&
+                      getComputedStyle(n).pointerEvents === 'none' &&
+                      document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2) !== n;
+                  }''')
+              for mode, query in [('3d', ''), ('2d', '?view=2d')]:
+                  context = browser.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True)
+                  page = context.new_page()
+                  page.on('pageerror', lambda error: report['errors'].append(str(error)))
+                  page.on('console', lambda msg: report['errors'].append(msg.text) if msg.type == 'error' else None)
+                  page.on('response', lambda res: report['bad_responses'].append({'url': res.url, 'status': res.status}) if res.status >= 400 else None)
+                  page.on('requestfailed', lambda req: report['bad_responses'].append({'url': req.url, 'failure': req.failure}))
+                  page.goto(base + query, wait_until='networkidle')
+                  assert page.locator('#game').get_attribute('data-view') == mode
+                  badge(page)
+                  page.screenshot(path=str(out / (mode + '-menu.png')))
+                  page.get_by_role('button', name='Старт', exact=True).click()
+                  page.wait_for_function("state === 'play' && elapsed > .1")
+                  badge(page)
+                  page.evaluate('document.activeElement.blur()')
+                  x0 = page.evaluate('x')
+                  page.keyboard.down('ArrowRight')
+                  page.wait_for_function('x > ' + str(x0 + 15))
+                  page.keyboard.up('ArrowRight')
+                  b = page.locator('#build-version').bounding_box()
+                  cdp = context.new_cdp_session(page)
+                  x0 = page.evaluate('x')
+                  cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [{'x': b['x'] + b['width']/2, 'y': b['y'] + b['height']/2}]})
+                  cdp.send('Input.dispatchTouchEvent', {'type': 'touchMove', 'touchPoints': [{'x': b['x'] + b['width']/2 - 90, 'y': b['y'] + b['height']/2}]})
+                  page.wait_for_function('x < ' + str(x0 - 15))
+                  cdp.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
+                  page.screenshot(path=str(out / (mode + '-play.png')))
+                  page.get_by_role('button', name='Пауза', exact=True).click()
+                  page.wait_for_function("state === 'pause'")
+                  for size in [{'width': 844, 'height': 390}, {'width': 320, 'height': 568}, {'width': 390, 'height': 844}]:
+                      page.set_viewport_size(size)
+                      page.wait_for_timeout(150)
+                      badge(page)
+                  page.get_by_role('button', name='Продолжить', exact=True).click()
+                  page.wait_for_function("state === 'play'")
+                  page.get_by_role('button', name='Пауза', exact=True).click()
+                  page.get_by_role('button', name='Заново', exact=True).click()
+                  page.wait_for_function("state === 'play' && elapsed < 2")
+                  badge(page)
+                  if mode == '3d':
+                      page.evaluate("document.getElementById('scene-3d').getContext('webgl2').getExtension('WEBGL_lose_context').loseContext()")
+                      page.wait_for_function("document.getElementById('game').dataset.view === '2d' && state === 'pause'")
+                      badge(page)
+                      page.get_by_role('button', name='Продолжить', exact=True).click()
+                      page.wait_for_function("state === 'play'")
+                  report['views'][mode] = 'PASS: menu/play/pause, keyboard, touch through badge, resize, resume/restart; 3D context-loss fallback'
+                  context.close()
+              browser.close()
+              http.dispose()
+          (out / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))
+          assert not report['errors'] and not report['bad_responses'], report
+          print('PASS: exact published assets; visible v0.0.1 in live 3D/2D; real RAF, controls, pause/restart/resize, fallback; no console errors or HTTP failures.')
+          PY
+          xvfb-run -a python "$RUNNER_TEMP/live.py" | tee "$RUNNER_TEMP/revision-live/live.log"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: revision-badge-checks
-          path: ${{ runner.temp }}/revision-checks
+          name: revision-live-verification
+          path: ${{ runner.temp }}/revision-live
           retention-days: 7
