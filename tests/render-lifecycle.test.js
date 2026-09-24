@@ -94,14 +94,14 @@ const { openBrowser, captureViews } = require("./browser-helpers");
         } else if (fault === "cleanup-error") {
           const release = worldOwner.dispose;
           worldOwner.dispose = () => { release(); fail(); };
-          fallbackToCanvas();
+          showGraphicsError();
         } else if (fault === "dispose") {
           activeView = null;
           retiredView.dispose(); retiredView.dispose();
-          document.getElementById("game").dataset.view = "2d";
+          showGraphicsError();
         } else render();
       }, fault);
-      await page.waitForFunction(() => document.getElementById("game").dataset.view === "2d", null, { polling: 50 });
+      await page.waitForFunction(() => document.getElementById("game").dataset.view === "unavailable", null, { polling: 50 });
       assert.equal(await page.locator("#scene-3d").count(), 0, fault + ": failed canvas is removed");
       assert.equal(await page.evaluate(() => activeView), null, fault + ": no retired view remains active");
       const metrics = await page.evaluate(() => lifecycleSnapshot());
@@ -112,10 +112,12 @@ const { openBrowser, captureViews } = require("./browser-helpers");
       if (!["model", "partial-model", "partial-hero", "world", "dispose"].includes(fault)) {
         assert.equal(await page.evaluate(() => state), "pause", fault + ": pause rather than dropping the run");
         assert.equal(await page.evaluate(() => runSnapshot()), await page.evaluate(() => beforeFailure), fault + ": preserve gameplay state");
-        await page.getByRole("button", { name: "Продолжить", exact: true }).click();
       }
-      const resumed = await page.evaluate((fault) => {
-        if (["model", "partial-model", "partial-hero", "world"].includes(fault)) start();
+      assert.ok(await page.getByRole("alert").isVisible(), fault + ": clear WebGL failure message");
+      assert.ok(await page.getByRole("button", { name: "Перезагрузить", exact: true }).isVisible());
+      assert.equal(await page.locator("#start, #resume, #restart").count(), 0);
+      const stopped = await page.evaluate((fault) => {
+        const before = runSnapshot(), time = JSON.stringify([clock, worldTime]);
         // Repeated cleanup and late events from the old canvas must be harmless.
         if (!["model", "partial-model", "partial-hero", "world"].includes(fault)) {
           retiredView.dispose(); retiredView.render(); retiredView.resize();
@@ -123,13 +125,14 @@ const { openBrowser, captureViews } = require("./browser-helpers");
         }
         let scheduled = 0;
         requestAnimationFrame = () => ++scheduled;
-        frame(100);
-        return { state, scheduled, view: document.getElementById("game").dataset.view };
+        start(); menu(); tick(.04); frame(100); resize(); render(); initializeView();
+        return { frozen: before === runSnapshot() && time === JSON.stringify([clock, worldTime]),
+          scheduled, view: document.getElementById("game").dataset.view };
       }, fault);
-      assert.deepEqual(resumed, { state: "play", scheduled: 1, view: "2d" }, fault + ": Canvas run and RAF continue");
+      assert.deepEqual(stopped, { frozen: true, scheduled: 0, view: "unavailable" }, fault + ": game/RAF stop, no hidden fallback or retry loop");
       assert.deepEqual(await page.evaluate(() => lifecycleSnapshot()), metrics, fault + ": no double disposal or reallocation");
     }
     assert.deepEqual(errors, [], "faults are contained, with no uncaught browser exceptions");
-    console.log("PASS: model/partial-model/partial-hero/world/animation/renderer/resize faults, real context loss, cleanup failure and repeated disposal; all observed hero/world/shared resources disposed once; no stale canvas callbacks; gameplay preserved; Canvas resume and RAF continue.");
+    console.log("PASS: model/partial-model/partial-hero/world/animation/renderer/resize faults, real context loss, cleanup failure and repeated disposal; all observed hero/world/shared resources disposed once; no stale canvas callbacks; gameplay preserved; explicit WebGL error; input/RAF remain stopped with no alternate renderer.");
   } finally { await session.close(); }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

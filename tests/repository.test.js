@@ -37,6 +37,12 @@ function walk(folder) {
   assert.equal(ids.length, new Set(ids).size, "unique DOM IDs");
   const appScripts = scripts.filter((f) => !f.includes("vendor/"));
   const source = appScripts.map(read).join("\n");
+  for (const file of ["render-2d.js", "characters.js", "food.js"])
+    assert.ok(!fs.existsSync(path.join(root, "js", file)), "removed artwork/renderer stays absent: " + file);
+  assert.doesNotMatch(source, /renderCanvasScene|fallbackToCanvas|drawRatioWorldCanvas|drawFood\(|drawCat\(|function pug\(/,
+    "no standalone Canvas renderer or private sprite artwork");
+  assert.doesNotMatch(read("js/render.js"), /URLSearchParams|["']2d["']/,
+    "boot has no renderer-selection or alternate-view path");
   const knownIds = new Set([...ids,
     ...[...source.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]),
     ...[...source.matchAll(/\.id\s*=\s*["']([^"']+)["']/g)].map((m) => m[1]),

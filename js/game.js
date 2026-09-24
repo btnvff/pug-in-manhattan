@@ -2,7 +2,8 @@
 const $ = (id) => document.getElementById(id),
   cv = $("scene"),
   overlay = $("overlay");
-let ctx = cv.getContext("2d");
+const ctx = cv.getContext("2d"); // Transparent effects/input surface over WebGL.
+let graphicsUnavailable = false;
 // Every caught sausage gently increases difficulty; transition is smoothed.
 let difficulty = 0;
 function challenge() {
@@ -85,10 +86,7 @@ let worldTime = 0,
   tailSwing = 0,
   tailVelocity = 0,
   motionX = x;
-let chewTime = 0,
-  chewVariant = 0,
-  chewFood = 0,
-  chewAppearance = 0;
+let chewTime = 0;
 let gazeX = 0,
   gazeY = 0,
   gazeTarget = null;
@@ -235,16 +233,22 @@ function clearInput() {
   pointerTarget = x;
 }
 function ui() {
-  audioScene(state);
-  const playing = state === "play" || state === "pause";
+  audioScene(graphicsUnavailable ? "pause" : state);
+  const playing = !graphicsUnavailable && (state === "play" || state === "pause");
   $("hud").style.display = playing ? "flex" : "none";
   $("powers").style.display = playing ? "flex" : "none";
   $("condition").style.display = $("rhythm").style.display = playing
     ? "block"
     : "none";
-  $("hint").style.display = state === "play" ? "block" : "none";
+  $("hint").style.display = !graphicsUnavailable && state === "play" ? "block" : "none";
   overlay.className = state === "win" || state === "lose" ? "result" : "";
   overlay.innerHTML = "";
+  if (graphicsUnavailable) {
+    overlay.className = "graphics-error";
+    overlay.innerHTML = '<div class="panel" role="alert"><h2>3D-графика недоступна</h2><p>Для игры нужен WebGL 2. Включите аппаратное ускорение или откройте игру в другом браузере.</p><button class="cta" id="reload">Перезагрузить</button><p>Перезагрузка начнёт новый сеанс.</p></div>';
+    $("reload").onclick = () => location.reload();
+    return;
+  }
   if (state === "menu") {
     overlay.innerHTML =
       '<header class="sky-heading"><h1 class="title"><span class="eyebrow">АРКАДА С ХАРАКТЕРОМ</span>Мопс <small style="font-size:.55em;font-weight:normal">на</small><span>Манхэттене</span></h1><p class="tagline">Большой город. Маленький мопс.<br>Огромный аппетит.</p></header><div class="menu-card"><button class="cta" id="start">Старт</button><p class="instruction">Тяни мопса пальцем. Лови вкусное. Избегай опасного. Побей рекорд.</p><p class="record">Лучший результат: ' +
@@ -290,6 +294,7 @@ function ui() {
   }
 }
 function menu() {
+  if (graphicsUnavailable) return;
   state = "menu";
   resetStreetEvents();
   clearInput();
@@ -304,6 +309,7 @@ function menu() {
   sound("button");
 }
 function start() {
+  if (graphicsUnavailable) return;
   unlockAudio();
   audioScene("restart");
   resetStreetEvents();
@@ -389,9 +395,8 @@ function collect(item) {
   } else streak = 0;
   healthFeedback(beforeHappy);
   if (item.type < 4) {
-    chewVariant = Math.floor(Math.random() * 3);
-    chewFood = item.type;
-    chewAppearance = item.variant ?? 0;
+    // Retain the established catch RNG draw, even without the old sprite variant.
+    Math.random();
     chewTime = BALANCE.feedback.chew;
   } else chewTime = 0;
   react = BALANCE.feedback.reaction;
@@ -555,6 +560,7 @@ function spawn() {
   });
 }
 function tick(dt) {
+  if (graphicsUnavailable) return;
   if (state !== "pause") clock += dt;
   if (state === "menu" || state === "play") worldTime += dt;
   if (state === "play") {
@@ -726,6 +732,6 @@ function resize() {
   cv.width=Math.round(fit.width*dpr);cv.height=Math.round(fit.height*dpr);
   ratioRaster=cv.width/PUG_WORLD_RATIO.reference_width;
   needsRender = true;
-  beginRatioFeedback();
+  if(ctx)beginRatioFeedback();
   if(activeView)activeView.resize();
 }

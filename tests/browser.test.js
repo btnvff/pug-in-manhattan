@@ -161,11 +161,11 @@ async function checkRevision(page) {
     }
     await page.evaluate(() => { start(); applyPower("helpers"); applyPower("birds"); applyPower("shield"); for (let i = 0; i < 90; i++) tick(1 / 60); render(); });
     await capture("helpers-3d");
-    // Compare the exact same seeded inputs with a real WebGL renderer and Canvas.
-    async function replay(view) {
-      await page.goto(url + "/?view=" + view);
-      assert.equal(await page.locator("#game").getAttribute("data-view"), view, "parity replay uses the requested renderer");
-      return page.evaluate(() => {
+    // Rendering must not affect the exact same seeded simulation without paints.
+    async function replay(paint) {
+      await page.goto(url);
+      assert.equal(await page.locator("#game").getAttribute("data-view"), "3d");
+      return page.evaluate((paint) => {
         let seed = 2026;
         Math.random = () => ((seed = seed * 16807 % 2147483647) - 1) / 2147483646;
         prefs.sound = false; start();
@@ -179,25 +179,19 @@ async function checkRevision(page) {
           tick(1 / 60);
           if (step % 60 === 0) {
             const snapshot = () => JSON.stringify({ state, x, points, sausages, happy, elapsed, items, powerTimers, cats, catGifts, streetEvents, durationBones, runProgress, seed });
-            const before = snapshot(); render();
+            const before = snapshot(); if (paint) render();
             if (snapshot() !== before) throw new Error("Renderer mutated gameplay or RNG");
             result.push(before);
           }
         }
         return result;
-      });
+      }, paint);
     }
-    const threeRun = await replay("3d");
-    const canvasRun = await replay("2d");
-    assert.deepEqual(threeRun, canvasRun, "2D/3D gameplay parity");
-    assert.equal(await page.locator("#game").getAttribute("data-view"), "2d");
+    assert.deepEqual(await replay(true), await replay(false), "WebGL rendering preserves gameplay/RNG");
+    await page.goto(url + "/?view=2d");
+    assert.equal(await page.locator("#game").getAttribute("data-view"), "3d", "obsolete URL cannot select another renderer");
+    assert.equal(await page.evaluate(() => typeof renderCanvasScene), "undefined");
     await checkRevision(page);
-    await capture("play-2d");
-    assert.equal(await page.evaluate(() => {
-      pause(); frame(100); let paints=0;
-      const draw=renderCanvasScene; renderCanvasScene=()=>{paints++;draw();};
-      resize(); frame(120); return paints;
-    }),1,"paused Canvas redraws after raster resize");
     await page.goto(url);
     for (const size of [{ width: 844, height: 390 }, { width: 320, height: 568 }, { width: 390, height: 844 }]) {
       await page.setViewportSize(size);
@@ -212,11 +206,19 @@ async function checkRevision(page) {
     await page.getByRole("button", { name: "Попробовать снова" }).click();
     assert.equal(await page.evaluate(() => points + items.length + durationBones), 0);
     await page.evaluate(() => document.getElementById("scene-3d").getContext("webgl2").getExtension("WEBGL_lose_context").loseContext());
-    await page.waitForFunction(() => document.getElementById("game").dataset.view === "2d", null, { polling: 50 });
-    assert.equal(await page.evaluate(() => state), "pause", "context loss pauses and falls back");
+    await page.waitForFunction(() => document.getElementById("game").dataset.view === "unavailable", null, { polling: 50 });
+    assert.equal(await page.evaluate(() => state), "pause", "context loss pauses instead of switching renderer");
     await checkRevision(page);
-    await page.getByRole("button", { name: "Продолжить", exact: true }).click();
-    await page.evaluate(() => { tick(1 / 60); render(); });
+    assert.ok(await page.getByRole("alert").isVisible());
+    assert.equal(await page.locator("#scene-3d").count(), 0);
+    assert.equal(await page.locator("#resume, #start, #restart").count(), 0, "no gameplay controls on an unavailable scene");
+    assert.ok(await page.getByRole("button", { name: "Перезагрузить", exact: true }).isVisible());
+    assert.ok(await page.evaluate(() => {
+      const frozen = JSON.stringify([state, elapsed, points, items, powerTimers, clock, worldTime]);
+      start(); menu(); tick(.04); frame(1000); resize();
+      return frozen === JSON.stringify([state, elapsed, points, items, powerTimers, clock, worldTime]);
+    }), "graphics failure freezes timers and blocks start/menu");
+    await capture("graphics-unavailable");
     const blocked = await context.newPage();
     blocked.on("pageerror", (error) => errors.push(error.message));
     await blocked.addInitScript(() => {
@@ -225,12 +227,25 @@ async function checkRevision(page) {
         return kind.startsWith("webgl") ? null : original.call(this, kind, ...args);
       };
     });
-    await blocked.goto(url);
-    assert.equal(await blocked.locator("#game").getAttribute("data-view"), "2d");
-    await blocked.evaluate(() => { start(); tick(1 / 60); render(); });
-    await checkRevision(blocked);
-    assert.deepEqual(errors, [], "no browser exceptions");
-    console.log("PASS: persistent bottom-center revision and input pass-through, WebGL startup, touch/keyboard, good/bad pickups, HUD, pause/blur/resume and paused resize, 9 food models, 17 effects, 2D/3D seeded parity and render purity, portrait/landscape resize, lose/restart, context loss and unavailable-WebGL fallbacks.");
+    for (const query of ["", "/?view=2d", "/?ratio=blockout", "/?ratio=reference"]) {
+      await blocked.goto(url + query);
+      assert.equal(await blocked.locator("#game").getAttribute("data-view"), "unavailable");
+      assert.ok(await blocked.getByRole("alert").isVisible(), "error remains visible even in diagnostic mode");
+      assert.equal(await blocked.locator("#scene-3d, #start").count(), 0);
+      assert.equal(await blocked.evaluate(() => { start(); tick(1 / 60); render(); return state; }), "menu");
+      await checkRevision(blocked);
+    }
+    const missing = await context.newPage();
+    missing.on("pageerror", (error) => errors.push(error.message));
+    await missing.addInitScript(() => {
+      Object.defineProperty(window, "THREE", { configurable: true, get: () => undefined, set() {} });
+    });
+    await missing.goto(url);
+    assert.equal(await missing.locator("#game").getAttribute("data-view"), "unavailable");
+    assert.ok(await missing.getByRole("alert").isVisible(), "missing local Three.js has an actionable error");
+    await checkRevision(missing);
+    assert.deepEqual(errors, [], "no uncaught browser exceptions");
+    console.log("PASS: bottom-center revision, WebGL startup, touch/keyboard, good/bad pickups, HUD, pause/blur/resume and paused resize, 9 food models, 17 effects, seeded rendered/unrendered parity, portrait/landscape resize, lose/restart, obsolete URL opens 3D, context loss/unavailable WebGL/missing Three stop safely with visible error.");
   } finally {
     await session.close();
   }

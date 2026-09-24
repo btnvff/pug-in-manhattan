@@ -1,9 +1,14 @@
+// Presentation only: the same orientation for live items and missed drops.
+function foodAngle(item) {
+  return (item.angle ?? 0) + (item.age ?? 0) * (item.spin ?? 0) +
+    Math.sin((item.age ?? 0) * 2 + (item.phase ?? 0)) * 0.22;
+}
 // WORLD uses the calibrated perspective camera. GAMEPLAY_PLANE is rendered at
 // fixed depth with an orthographic presentation camera; simulation stays read-only.
 function createThreeView() {
   const T = window.THREE, C = PUG_WORLD_RATIO;
-  if (!T)
-    throw new Error("Three.js did not load");
+  if (!T || !ctx)
+    throw new Error("3D presentation dependencies did not load");
   const canvas = document.createElement("canvas");
   canvas.id = "scene-3d";
   canvas.setAttribute("aria-hidden", "true");
@@ -35,7 +40,7 @@ function createThreeView() {
   }
   function onContextLost(event) {
     event.preventDefault();
-    fallbackToCanvas();
+    showGraphicsError();
   }
   function guarded(action) {
     return () => {
@@ -45,7 +50,7 @@ function createThreeView() {
         action();
       }
       catch (error) {
-        fallbackToCanvas(error);
+        showGraphicsError(error);
       }
     };
   }

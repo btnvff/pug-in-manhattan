@@ -14,16 +14,16 @@ assert.equal(run("paints"), 1, "paused resize repaints even with unchanged logic
 assert.equal(game.snapshot(), before);
 run("frame(140)");
 assert.equal(run("paints"), 1, "paused frames do not repaint continuously");
-run("fallbackToCanvas(); render()");
-assert.equal(game.nodes.get("game").dataset.view, "2d");
-run("let canvasPaints=0; const canvasDraw=renderCanvasScene; renderCanvasScene=()=>{canvasPaints++;canvasDraw();}; frame(160); canvasPaints=0; resize(); frame(180)");
-assert.equal(run("canvasPaints"), 1, "Canvas pause/resize redraws the cleared bitmap");
-assert.equal(game.snapshot(), before);
+run("showGraphicsError(); render(); frame(160); resize(); tick(.04); start(); menu(); initializeView()");
+assert.equal(game.nodes.get("game").dataset.view, "unavailable");
+assert.equal(run("activeView"), null);
+assert.equal(game.snapshot(), before, "graphics failure freezes the run and cannot restart it blindly");
+assert.match(game.nodes.get("overlay").innerHTML, /WebGL 2/);
 assert.deepEqual(game.warnings, []);
-console.log("PASS: real geometry, 17 powers, nine foods; paused 3D/Canvas resize repaints once; state preservation, disposal and fallback (renderer double).");
+console.log("PASS: real geometry, 17 powers, nine foods; paused 3D resize repaints once; explicit stopped graphics failure, state preservation and disposal (renderer double).");
 
 for (const mode of ["blockout", "reference", "overlay"]) {
-  const review = loadGame(null, 42, { search: "?view=2d&ratio=" + mode });
+  const review = loadGame(null, 42, { rendererDouble: true, search: "?ratio=" + mode });
   review.run("let labels=[]; ctx.fillText=text=>labels.push(text); render()");
   assert.ok(review.run('labels.includes("600 × 1125 · " + ratioMode)'), "review label uses the contract dimensions");
   assert.deepEqual(review.warnings, []);
