@@ -10,13 +10,23 @@ Preserve gameplay rules, RNG draw order, scoring, hitboxes, spawn rates, balance
 
 ## Current version and known-good state
 
-Current game version: **v0.0.5** (street-motion candidate; not yet merged or deployed). Latest production-verified playable baseline retained as the runtime rollback point: **v0.0.3**, **[41350649cf572b4bdb083a255928c9b197109b9d](https://github.com/btnvff/pug-in-manhattan/commit/41350649cf572b4bdb083a255928c9b197109b9d)**, merged in PR #10. Documentation-only commits do not replace this runtime baseline. Always read the current remote `main` before work; never reset newer work to this recorded commit.
+Current LOCAL game version: **v0.0.6**, a visual-art candidate on `codex/manhattan-visual-art-pass`, awaiting visual approval. At this review, remote MAIN is **208fdf5d2e1e993b839c243135da24fb982aed45**, with game version **v0.0.5**; PRODUCTION has not been freshly verified. Latest production-verified playable baseline retained as the runtime rollback point: **v0.0.3**, **[41350649cf572b4bdb083a255928c9b197109b9d](https://github.com/btnvff/pug-in-manhattan/commit/41350649cf572b4bdb083a255928c9b197109b9d)**, merged in PR #10. Documentation-only commits do not replace this runtime baseline. Always read the current remote `main` before work; never reset newer work to this recorded commit.
 
-Verification evidence from **2026-09-24**: [Pages deployment](https://github.com/btnvff/pug-in-manhattan/actions/runs/36005769488) succeeded; [post-merge production verification](https://github.com/btnvff/pug-in-manhattan/actions/runs/36005839981) checked byte-exact resources and five live browser suites. These are dated successful runs, not a promise of a fresh live check on every audit or a physical-device certification. At that baseline verification the badge read `v0.0.3`; the current candidate badge reads `v0.0.5` only and still does **not** show a commit hash. Do not describe it as `v0.0.3 · 41350649` or fetch remote HEAD and present that as the running code.
+Verification evidence from **2026-09-24**: [Pages deployment](https://github.com/btnvff/pug-in-manhattan/actions/runs/36005769488) succeeded; [post-merge production verification](https://github.com/btnvff/pug-in-manhattan/actions/runs/36005839981) checked byte-exact resources and five live browser suites. These are dated successful runs, not a promise of a fresh live check on every audit or a physical-device certification. At that baseline verification the badge read `v0.0.3`; the current candidate badge carries only its version and still does **not** show a commit hash. Do not describe it as `v0.0.3 · 41350649` or fetch remote HEAD and present that as the running code.
 
 The product is intentionally FULL-3D. Do not restore the retired standalone 2D world, pug, food renderer, view selector or old-game fallback. Earlier instructions to preserve that fallback refer to the retired architecture. Preserve the Canvas overlays, diagnostics and procedural textures used by the current 3D product. Permanent review entry points are [PUG-WORLD-RATIO.md](PUG-WORLD-RATIO.md) and [CHARACTER_REVIEW.md](CHARACTER_REVIEW.md); they point to the current implementations and constraints rather than historical preview reports.
 
-### Street motion candidate — v0.0.5, 2026-09-24
+### Local visual-art candidate — v0.0.6
+
+The task starts from `208fdf5d2e1e993b839c243135da24fb982aed45`, retained as its local rollback point. The supplied Manhattan reference informs materials, storefront depth, sedan silhouettes and an asymmetric foreground; it does not replace the existing pug or recalibrate the scene. No merge, deployment or production verification is part of this candidate.
+
+`js/world/ratio-scene.js` owns shared brick, stone, sidewalk, asphalt, glass and worn-metal Canvas textures; shallow road relief and repairs; recessed window variants, AC units, corner shops and signs; bridge bracing and stepped skyline details; a left hydrant, right manhole/steam/newspaper, leaves and puddles. Sedan geometry retains the proven route footprint, with a long hood, trunk, wheel cutouts and distance-driven wheels. Warm sunlight/cool fill changes in `js/render/renderer-3d.js` affect the world only. Hero, HUD, simulation, camera matrices, WorldRatio version/fixture and all actor routes remain unchanged.
+
+Local verification: actual Chrome/WebGL 2 with SwiftShader over Live Server HTTP at `http://127.0.0.1:5500/`; menu/reference/gameplay images and a six-frame native running sequence at the portrait phone viewport inspected. Native motion, drag, exact pause, resume/visibility, warmed restarts and genuine context loss passed. The existing graphics lifecycle suite passed allocation/disposal and partial-construction fault checks. Neutral hero-only pixels, normalization and both camera projection matrices match the starting commit exactly. Three-seed 30-second gameplay/RNG comparison, 300-second swept routes with actual sedan bounds, and ratio runtime checks passed.
+
+WorldRatio and repository/export/HTTP checks passed in a temporary copy using Git's canonical LF bytes plus the candidate edits. The Windows CRLF checkout fails the pre-existing raw fixture/vendor byte hashes; neither immutable source was rewritten. The reference-world pass measured 200 draw calls versus 168 at the starting commit, with about 147k versus 78k submitted triangles. Static details use per-instance color batching, car trim is batched, distant windows are simplified, and generated textures are at most 512 pixels per dimension. These are rendering costs, not physical-phone performance certification. Visual approval and physical-device/Safari checks remain outstanding.
+
+### Street motion review — v0.0.5, 2026-09-24
 
 `chatgpt/street-motion` starts from published v0.0.4 / `86f8411e58fb59b3e45151872744f7f402725d32`, retained as this task's rollback commit. Its tiny sinusoidal car/person displacements made the street appear stationary. Native local-browser frames still advanced food and gameplay; the reported complete phone freeze was not reproduced and is not claimed fixed.
 
@@ -24,7 +34,7 @@ The existing world now samples three car routes (including turns and reserved fa
 
 Verification: repository/HTTP resource checks, WorldRatio, ratio-runtime, three-seed 30-second gameplay/RNG parity against the starting commit; new 300-second swept-route, offscreen/fog recycling, grounded-foot and pure-sampling assertions. The new browser regression leaves native RAF running and checks moving cars/people/food, drag, exact pause, resume/visibility, four warmed restarts and genuine context loss. Actual Chromium 144/WebGL 2 SwiftShader reference/menu/play captures and motion sequence inspected; matching 600×1125 hero/contact and HUD crops are unchanged. Ratio 1.0.0 and its fixture are unchanged.
 
-Browser verification uses the existing local-content mode: local HTTP navigation returns `ERR_BLOCKED_BY_ADMINISTRATOR`; production verification fails at its first request with `getaddrinfo EAI_AGAIN btnvff.github.io`. No Safari/physical-phone or mobile-performance verification, new deployment, or completion of the broader environment redesign is claimed. Main/production remain v0.0.4 until a separately approved merge/deployment.
+At that earlier review, browser verification used local-content mode: local HTTP navigation returned `ERR_BLOCKED_BY_ADMINISTRATOR`; production verification failed at its first request with `getaddrinfo EAI_AGAIN btnvff.github.io`. No Safari/physical-phone or mobile-performance verification, new deployment, or completion of the broader environment redesign was claimed. That record predates the merge of v0.0.5; use current Git/deployment evidence for publication status.
 
 ### Ground and bridge correction — v0.0.4, 2026-09-24
 
@@ -87,6 +97,8 @@ balance → world-ratio → ui → game → pug-motion → input
 | `js/vendor/` | Pinned local Three.js implementation and license; upgrades require explicit review. |
 
 Keep `style.css` as one coherent stylesheet. Static icon files live under `assets/icons/`; all other visual/audio content is procedural. Do not create empty texture/image/audio pipelines. `scripts/build-preview.js` discovers paths from HTML/manifest, copies only runtime resources and the license, and refuses to replace a nonempty destination.
+
+World material families, geometry, instanced batches, contact/cloud planes and steam belong to the ratio world and are disposed with it, including partial construction. Texture variation uses a private deterministic sequence only during setup. Steam reads the existing `worldTime`; it adds no clock or gameplay state. Keep the complete sedan silhouette inside the footprint checked by `tests/world/street-motion.test.js`. World lighting is separate from the protected gameplay-plane lights.
 
 ## Simulation and presentation
 

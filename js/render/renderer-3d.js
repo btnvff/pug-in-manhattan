@@ -62,7 +62,7 @@ function createThreeView() {
     renderer.toneMappingExposure = 1.06;
     scene = new T.Scene();
     worldScene = new T.Scene();
-    worldScene.background = new T.Color("#a8cddd");
+    worldScene.background = new T.Color("#90c5db");
     worldScene.fog = new T.Fog("#b4ced5", 90, 360);
     worldCamera = WorldRatio.camera(T);
     camera = new T.OrthographicCamera(-WorldRatio.aspect / (2 * C.pug_height_ratio), WorldRatio.aspect / (2 * C.pug_height_ratio), C.pug_ground_v / C.pug_height_ratio, (C.pug_ground_v - 1) / C.pug_height_ratio, 1, 200);
@@ -81,8 +81,16 @@ function createThreeView() {
     animatePugModel(hero, { time: 0, state: "play" });
     const neutral = WorldRatio.bounds(hero, T);
     hero.userData.ratioNormalization = { height: neutral.max.y - neutral.min.y, centerX: (neutral.min.x + neutral.max.x) / 2, ground: neutral.min.y };
-    for (const light of scene.children.filter(o => o.isLight))
-      worldScene.add(light.clone());
+    // World-only contrast and warm sun. Hero/food lighting above remains intact.
+    for (const light of scene.children.filter(o => o.isLight)) {
+      const streetLight=light.clone();
+      if(light.isHemisphereLight) {
+        streetLight.intensity=1.05;streetLight.color.set("#c7e0ef");streetLight.groundColor.set("#776e58");
+      } else if(light===sun) {
+        streetLight.intensity=2.8;streetLight.color.set("#ffe0ad");streetLight.position.set(-150,240,160);
+      } else streetLight.intensity=.55;
+      worldScene.add(streetLight);
+    }
     world = createRatioWorld(model);
     worldScene.add(world.root);
     renderer.autoClear = false;

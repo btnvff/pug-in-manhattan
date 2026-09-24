@@ -8,6 +8,16 @@ const world = game.run("trafficWorld"), T = game.run("window.THREE");
 const C = game.run("PUG_WORLD_RATIO"), street = game.run("RATIO_LAYOUT.street");
 const cars = world.actors.filter(a => a.kind === "car"), people = world.actors.filter(a => a.kind === "person");
 assert.equal(cars.length, 3); assert.equal(people.length, 5);
+// The actual model, including mirrors/plates/shadows, must fit the footprint
+// used by the swept-route proof below. Precise bounds avoid rotated tire AABBs.
+for (const a of cars) {
+  a.mesh.position.set(0, 0, 0); a.mesh.rotation.set(0, 0, 0);
+  const bounds = new T.Box3().setFromObject(a.mesh, true);
+  assert.ok(bounds.min.x >= -1 && bounds.max.x <= 1, "full sedan stays inside the approved width");
+  assert.ok(bounds.min.z >= -2.05 && bounds.max.z <= 2.10, "full sedan fits the swept-route footprint");
+  assert.ok(bounds.min.y >= -1e-6 && bounds.min.y < .005, "tessellated tires remain grounded");
+  assert.ok(bounds.max.y <= C.object_dimension_registry.taxi.height, "roof/sign retain the registered car height");
+}
 const snapshot = () => JSON.stringify(world.actors.map(a => {
   const transforms = [];
   a.mesh.traverse(n => transforms.push([n.position.toArray(), n.quaternion.toArray(), n.scale.toArray()]));
