@@ -1,0 +1,70 @@
+name: 3D-only publication
+on:
+  push:
+    branches: [chatgpt/3d-only-publication]
+    paths: [.github/workflows/3d-only-publication.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+  statuses: write
+jobs:
+  verify-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    env:
+      FEATURE_SHA: 7360871018668ca04e7e9e4940a512401a5f4900
+      BASE_SHA: 8dd3db9fea6b54d3afdf1392e17a369aa0efba5b
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Restore exact reviewed commit without rewriting history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(git rev-parse origin/main)" = "$BASE_SHA"
+          gh api repos/btnvff/pug-in-manhattan/git/blobs/cc40ff47027f8d6ddad6f6d76822fc9fc4be8993 --jq .content | base64 --decode > "$RUNNER_TEMP/feature.bundle"
+          test "$(sha256sum "$RUNNER_TEMP/feature.bundle" | cut -d' ' -f1)" = ca580359da192f23869c210f3cfd193bfa06556494e9e148d7a6fc4ccaa399cc
+          git bundle verify "$RUNNER_TEMP/feature.bundle"
+          git fetch "$RUNNER_TEMP/feature.bundle" refs/heads/chatgpt/remove-2d:refs/heads/chatgpt/remove-2d
+          git checkout chatgpt/remove-2d
+          test "$(git rev-parse HEAD)" = "$FEATURE_SHA"
+          test "$(git rev-parse HEAD^{tree})" = a719ef8719a0ba81d79fc0905768176ce454917f
+          git diff --check "$BASE_SHA"
+      - name: Install external browser test tools without changing the app
+        run: |
+          python -m pip install --target "$RUNNER_TEMP/browser-tools" playwright==1.57.0
+          export PYTHONPATH="$RUNNER_TEMP/browser-tools"
+          python -m playwright install --with-deps chromium
+          echo "PLAYWRIGHT_MODULE=$(python -c 'import playwright, pathlib; print(pathlib.Path(playwright.__file__).parent / "driver/package")')" >> "$GITHUB_ENV"
+          echo "CHROMIUM_PATH=$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')" >> "$GITHUB_ENV"
+      - name: All ten suites over real HTTP and exact gameplay parity
+        env:
+          SCREENSHOT_DIR: ${{ runner.temp }}/3d-only-checks/screenshots
+        run: |
+          mkdir -p "$RUNNER_TEMP/3d-only-checks"
+          xvfb-run -a node tests/run.js --all | tee "$RUNNER_TEMP/3d-only-checks/tests.log"
+          node tests/gameplay.test.js --compare "$BASE_SHA" | tee "$RUNNER_TEMP/3d-only-checks/parity.log"
+          git diff --check
+          test -z "$(git status --porcelain)"
+      - name: Push verified feature branch without force and record passing check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch origin
+          test "$(git rev-parse origin/main)" = "$BASE_SHA"
+          git push -u origin chatgpt/remove-2d
+          gh api --method POST "repos/btnvff/pug-in-manhattan/statuses/$FEATURE_SHA" -f state=success -f context=3d-only/verification -f description='10 suites and exact gameplay parity passed' -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 3d-only-checks
+          path: ${{ runner.temp }}/3d-only-checks
+          retention-days: 7
