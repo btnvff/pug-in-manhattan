@@ -90,7 +90,7 @@ function walk(folder) {
       assert.deepEqual(Buffer.from(await response.arrayBuffer()),fs.readFileSync(path.join(root,file || "index.html")));
       if (file.endsWith(".js")) assert.match(response.headers.get("content-type"),/javascript/);
     }
-    for (const query of ["?ratio=blockout", "?ratio=reference", "?ratio=diagnostics"]) {
+    for (const query of ["?ratio=blockout", "?ratio=reference", "?ratio=overlay"]) {
       const diagnosticURL = new URL(query, url);
       assert.equal(diagnosticURL.pathname, "/pug-in-manhattan/");
       const response = await fetch(diagnosticURL);
