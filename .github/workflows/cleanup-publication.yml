@@ -1,0 +1,10 @@
+name: Cleanup publication
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ready:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Publication transport prepared; activation follows verified bundle upload.'
