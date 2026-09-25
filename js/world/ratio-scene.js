@@ -331,12 +331,14 @@ function createRatioWorld(model) {
   const T = window.THREE, C = PUG_WORLD_RATIO, Z = C.projection_calibration.pug_camera_depth;
   const root = new T.Group(), owned = [], actors = [], materials = new Map(), textures = new Map(), geometries = {};
   let disposed = false;
+  let taxiVisual;
   const steam = [];
   const own = resource => { owned.push(resource); return resource; };
   function dispose() {
     if (disposed)
       return;
     disposed = true;
+    if (taxiVisual) taxiVisual.dispose();
     disposeThreeResources([...owned, ...materials.values()]);
     owned.length = 0;
     materials.clear();
@@ -741,7 +743,11 @@ function createRatioWorld(model) {
         steam[i].scale.set(size,size*1.45,1);steam[i].material.opacity=Math.sin(phase*Math.PI)*.32;
       }
       for (const a of actors) {
-      if (a.kind === "car") { carPose(a, time); continue; }
+      if (a.kind === "car") {
+        carPose(a, time);
+        if (a.taxiWheels) a.taxiWheels.forEach(w => { w.rotation.x = -a.pose.distance / (.352 * .75); });
+        continue;
+      }
       const half = a.duration + 2, t = mod(time + a.offset, half * 2);
       const back = t >= half, local = back ? t - half : t;
       const u = Math.min(1, local / a.duration), progress = smooth(u);
@@ -766,6 +772,7 @@ function createRatioWorld(model) {
       });
     } }
     animate(0);
+    taxiVisual = TaxiVisual.attach(actors);
     return { root, animate, actors, dispose };
   }
   catch (error) {

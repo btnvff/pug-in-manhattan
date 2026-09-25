@@ -9,7 +9,7 @@ function buildPreview(destination = dist) {
     throw new Error("Refusing to overwrite a nonempty export directory");
   const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
   const paths = [...new Set([
-    "index.html", "js/vendor/three-LICENSE.txt",
+    "index.html", "js/vendor/three-LICENSE.txt", "assets/models/vehicles/nyc-taxi.glb",
     ...[...html.matchAll(/(?:src|href)="\.\/(.*?)"/g)].map((match) => match[1].split(/[?#]/)[0]),
     ...JSON.parse(fs.readFileSync(path.join(root, "manifest.webmanifest"), "utf8")).icons.map((icon) => icon.src.replace(/^\.\//, "")),
   ])];

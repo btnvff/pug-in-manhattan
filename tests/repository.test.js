@@ -51,7 +51,7 @@ function walk(folder) {
   }
   const manifest = JSON.parse(read("manifest.webmanifest"));
   assert.equal(manifest.start_url, "./"); assert.equal(manifest.scope, "./");
-  const assetURLs = [...new Set(["index.html", "js/vendor/three-LICENSE.txt",
+  const assetURLs = [...new Set(["index.html", "js/vendor/three-LICENSE.txt", "assets/models/vehicles/nyc-taxi.glb",
     ...[...html.matchAll(/(?:src|href)="\.\/(.*?)"/g)].map((m) => m[1]),
     ...manifest.icons.map((icon) => icon.src.replace(/^\.\//, "")),
   ])];

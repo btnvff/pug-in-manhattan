@@ -67,8 +67,8 @@ The actual load order is:
 ```text
 balance → world-ratio → ui → game → pug-motion → input
 → run-state → powers → events → street-events → audio
-→ canvas-primitives → feedback-overlay → Three.js
-→ pug-3d → pug-animation → models-3d → ratio-scene
+→ canvas-primitives → feedback-overlay → Three.js → GLTFLoader
+→ pug-3d → pug-animation → models-3d → taxi-visual → ratio-scene
 → ratio-diagnostics → renderer-3d → bootstrap
 ```
 
@@ -96,7 +96,15 @@ balance → world-ratio → ui → game → pug-motion → input
 | `js/systems/audio.js` | Gesture-created WebAudio graph, score/Foley, preferences, voice ownership, scene transitions and teardown. |
 | `js/vendor/` | Pinned local Three.js implementation and license; upgrades require explicit review. |
 
-Keep `style.css` as one coherent stylesheet. Static icon files live under `assets/icons/`; all other visual/audio content is procedural. Do not create empty texture/image/audio pipelines. `scripts/build-preview.js` discovers paths from HTML/manifest, copies only runtime resources and the license, and refuses to replace a nonempty destination.
+Keep `style.css` as one coherent stylesheet. Static icons live under `assets/icons/`; the taxi pilot lives under `assets/models/vehicles/`. Other visual/audio content is procedural. Do not create empty texture/image/audio pipelines. `scripts/build-preview.js` discovers paths from HTML/manifest and explicitly includes the taxi GLB, copies only runtime resources and the license, and refuses to replace a nonempty destination.
+
+### Blender taxi integration — locally approved
+
+[Taxi visual](js/world/taxi-visual.js) loads [nyc-taxi.glb](assets/models/vehicles/nyc-taxi.glb) once per page, retaining CPU bytes across view teardown. Each world parses one reusable template and clones its hierarchy for the three existing car parents; geometry and materials are shared by those clones and disposed once with that world, including late asynchronous completion. Restart/menu reuse the existing world. Missing loader, HTTP failure, parse failure or initialization failure preserves the procedural sedan; the existing contact shadow remains visible. No simulation state, gameplay RNG, parent route transform, WorldRatio value or game version changes.
+
+The GLB was exported through Blender MCP from `NYC_TAXI` / `CAR_ROOT` in `NYC_PUG_PROP_TAXI.blend`, with the evaluated Mirror modifier and source geometry unchanged. It contains nine meshes, seven materials and 1,892 triangles, without cameras/lights or unrelated objects. It intentionally retains source +Y forward and +Z up. The visual uses uniform scale `0.75`, a child X rotation of `-π/2`, parent Y rotation of `π`, and zero offset: game +Z forward / +Y up, approximately 4.039 × 1.650 × 1.220 including mirrors/sign. Wheel rotation reads existing traveled distance using the scaled tire radius `0.352 * 0.75`; the original procedural wheel clock remains intact.
+
+[Local GLTFLoader r185](js/vendor/GLTFLoader-r185.js) is a mechanical classic-script adaptation of the official `mrdoob/three.js` r185 `GLTFLoader.js`, `BufferGeometryUtils.js` and `SkeletonUtils.js`: imports become scoped `THREE` bindings, utilities remain enclosed, and the loader is assigned to `THREE.GLTFLoader`. The existing adjacent MIT license applies. No npm, bundler, app modules or runtime CDN is used. The targeted [taxi browser check](tests/browser/taxi-visual-browser.test.js) supports `TEST_BASE_URL=http://127.0.0.1:5500/` for the installed Live Server workflow and checks requests/reuse, bounds/direction, parent motion parity, missing/invalid fallback, playability and GPU resource disposal. The user approved the local integration on 2026-09-25. Publication status and physical-device verification remain separate from that visual approval.
 
 World material families, geometry, instanced batches, contact/cloud planes and steam belong to the ratio world and are disposed with it, including partial construction. Texture variation uses a private deterministic sequence only during setup. Steam reads the existing `worldTime`; it adds no clock or gameplay state. Keep the complete sedan silhouette inside the footprint checked by `tests/world/street-motion.test.js`. World lighting is separate from the protected gameplay-plane lights.
 
