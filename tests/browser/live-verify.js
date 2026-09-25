@@ -8,7 +8,7 @@ if(!base || !/^https?:\/\//.test(base) || !base.endsWith("/") || process.env.OFF
 (async()=>{
   const index=fs.readFileSync(path.join(root,"index.html"),"utf8");
   const manifest=JSON.parse(fs.readFileSync(path.join(root,"manifest.webmanifest"),"utf8"));
-  const urls=[...new Set(["index.html","js/vendor/three-LICENSE.txt",...[...index.matchAll(/(?:src|href)="\.\/(.*?)"/g)].map(m=>m[1]),...manifest.icons.map(i=>i.src.replace(/^\.\//,""))])];
+  const urls=[...new Set(["index.html","js/vendor/three-LICENSE.txt","assets/models/vehicles/nyc-taxi.glb",...[...index.matchAll(/(?:src|href)="\.\/(.*?)"/g)].map(m=>m[1]),...manifest.icons.map(i=>i.src.replace(/^\.\//,""))])];
   for(const relative of urls){
     const url=new URL(relative,base);url.searchParams.set("verify",process.env.EXPECTED_SHA||"current");
     const response=await fetch(url,{signal:AbortSignal.timeout(30000)});
